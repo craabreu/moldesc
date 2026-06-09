@@ -45,13 +45,15 @@ Mordred names implemented with explicit RDKit-only helpers:
   `nBondsA`, `nBondsM`, `nBondsKS`, `nBondsKD`, `nAromBond`
 - Ring counts: the full Mordred `n*Ring` family, including size-specific,
   aromatic/aliphatic, hetero, and fused-ring-system variants
+- Graph topology: `Diameter`, `Radius`, `TopoShapeIndex`, `PetitjeanIndex`,
+  `WPath`, `WPol`, `Zagreb1`, `Zagreb2`, `mZagreb1`, `mZagreb2`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
 `TopoPSA(NO)`. `RotRatio` is not included because Mordred can return missing
-values for zero-bond molecules and this package does not define a production
-missing-value policy yet. RDKit-native `Chi*`, `Kappa*`, `fr_*`,
+values for zero-heavy-edge molecules and this package does not define a
+production missing-value policy yet. RDKit-native `Chi*`, `Kappa*`, `fr_*`,
 `AUTOCORR2D`, and `BCUT2D_*` descriptors are intentionally excluded from the
 Mordred-compatible output unless separately validated.
 

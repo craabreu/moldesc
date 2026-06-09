@@ -63,6 +63,26 @@ MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit ring info count" for name in RING_COUNT_DESCRIPTORS}
 )
 
+GRAPH_TOPOLOGY_DESCRIPTORS: tuple[str, ...] = (
+    "Diameter",
+    "Radius",
+    "TopoShapeIndex",
+    "PetitjeanIndex",
+    "WPath",
+    "WPol",
+    "Zagreb1",
+    "Zagreb2",
+    "mZagreb1",
+    "mZagreb2",
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit graph distance/adjacency calculation"
+        for name in GRAPH_TOPOLOGY_DESCRIPTORS
+    }
+)
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",

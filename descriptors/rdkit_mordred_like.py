@@ -44,6 +44,75 @@ def _average_molecular_weight(mol: Chem.Mol) -> float:
     return Descriptors.ExactMolWt(mol) / atom_count
 
 
+def _distance_matrix(mol: Chem.Mol):
+    return Chem.GetDistanceMatrix(mol, force=True)
+
+
+def _adjacency_valences(mol: Chem.Mol) -> list[float]:
+    matrix = Chem.GetAdjacencyMatrix(mol, useBO=False, force=True)
+    return [float(value) for value in matrix.sum(axis=0)]
+
+
+def _diameter(mol: Chem.Mol) -> int:
+    matrix = _distance_matrix(mol)
+    if matrix.size == 0:
+        return 0
+    return int(matrix.max())
+
+
+def _radius(mol: Chem.Mol) -> int:
+    matrix = _distance_matrix(mol)
+    if matrix.size == 0:
+        return 0
+    return int(matrix.max(axis=0).min())
+
+
+def _topological_shape_index(mol: Chem.Mol) -> float:
+    radius = _radius(mol)
+    return (_diameter(mol) - radius) / radius
+
+
+def _petitjean_index(mol: Chem.Mol) -> float:
+    diameter = _diameter(mol)
+    return (_diameter(mol) - _radius(mol)) / diameter
+
+
+def _wiener_path_index(mol: Chem.Mol) -> int:
+    return int(0.5 * _distance_matrix(mol).sum())
+
+
+def _wiener_polarity_index(mol: Chem.Mol) -> int:
+    return int(0.5 * (_distance_matrix(mol) == 3).sum())
+
+
+def _zagreb_index_1(mol: Chem.Mol) -> float:
+    return sum(valence**2 for valence in _adjacency_valences(mol))
+
+
+def _zagreb_index_2(mol: Chem.Mol) -> float:
+    valences = _adjacency_valences(mol)
+    return float(
+        sum(
+            valences[bond.GetBeginAtomIdx()] * valences[bond.GetEndAtomIdx()]
+            for bond in mol.GetBonds()
+        )
+    )
+
+
+def _modified_zagreb_index_1(mol: Chem.Mol) -> float:
+    return sum(valence**-2 for valence in _adjacency_valences(mol))
+
+
+def _modified_zagreb_index_2(mol: Chem.Mol) -> float:
+    valences = _adjacency_valences(mol)
+    return float(
+        sum(
+            (valences[bond.GetBeginAtomIdx()] * valences[bond.GetEndAtomIdx()]) ** -1
+            for bond in mol.GetBonds()
+        )
+    )
+
+
 def _hydrogen_atom_count(mol: Chem.Mol) -> int:
     return sum(
         1 if atom.GetAtomicNum() == 1 else atom.GetTotalNumHs()
@@ -213,12 +282,22 @@ def _ring_count_descriptor(name: str) -> DescriptorFunction:
 _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "AMW": _average_molecular_weight,
     "BertzCT": Descriptors.BertzCT,
+    "Diameter": _diameter,
     "FCSP3": rdMolDescriptors.CalcFractionCSP3,
     "MW": Descriptors.ExactMolWt,
+    "PetitjeanIndex": _petitjean_index,
+    "Radius": _radius,
     "SMR": Crippen.MolMR,
     "SLogP": Crippen.MolLogP,
     "TopoPSA": lambda mol: rdMolDescriptors.CalcTPSA(mol, includeSandP=True),
     "TopoPSA(NO)": rdMolDescriptors.CalcTPSA,
+    "TopoShapeIndex": _topological_shape_index,
+    "WPath": _wiener_path_index,
+    "WPol": _wiener_polarity_index,
+    "Zagreb1": _zagreb_index_1,
+    "Zagreb2": _zagreb_index_2,
+    "mZagreb1": _modified_zagreb_index_1,
+    "mZagreb2": _modified_zagreb_index_2,
     "nAromAtom": _aromatic_atom_count,
     "nAromBond": lambda mol: _bond_count_by_predicate(mol, _is_aromatic_bond),
     "nAtom": _total_atom_count_including_hydrogen,
