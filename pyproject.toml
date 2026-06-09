@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "descriptors"
+version = "0.1.0"
+description = "RDKit-only Mordred-compatible 2D descriptor subset"
+requires-python = ">=3.10"
+dependencies = ["rdkit"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["descriptors*"]
+
