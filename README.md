@@ -51,6 +51,8 @@ Mordred names implemented with explicit RDKit-only helpers:
   `piPC10`, `TpiPC10`
 - Walk counts: `MWC01` through `MWC10`, `TMWC10`, `SRW02` through
   `SRW10`, `TSRW10`
+- Validated atom-type aliases: `NaaNH`, `NaaO`, `NddsN`, `NsNH2`,
+  `NsSH`, `NssO`, `NssS`, `NtN`, `NtsC`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that

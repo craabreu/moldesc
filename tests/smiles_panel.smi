@@ -38,3 +38,15 @@ c1ccc2[nH]ccc2c1 indole
 C1COCCN1 morpholine
 C1CNC1 azetidine
 c1ccc2c(c1)ccc1ccccc12 anthracene
+N#Cc1ccccc1 benzonitrile
+C[N+]#[C-] isocyanide
+C[N+](=O)[O-] nitromethane
+Oc1ccccc1[N+](=O)[O-] ortho_nitrophenol
+COc1ccccc1 anisole
+CS methanethiol
+CSC dimethyl_sulfide
+CS(=O)C dmso
+CC(=O)N acetamide
+CN methylamine
+Nc1ccccc1 aniline
+c1ccc2occc2c1 benzofuran

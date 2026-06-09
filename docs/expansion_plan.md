@@ -15,9 +15,9 @@ against the Mordred test oracle on the validation panel.
 
 ## Current State
 
-- Supported Mordred-compatible descriptors: 282.
-- Validation molecules: 40.
-- Compatibility-checked numerical values: 11,280.
+- Supported Mordred-compatible descriptors: 291.
+- Validation molecules: 52.
+- Compatibility-checked numerical values: 15,132.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` is intentionally excluded from the validation panel for now because
@@ -45,11 +45,13 @@ against the Mordred test oracle on the validation panel.
    - `MWC*`
    - `piPC*`, `TMPC10`, `TpiPC10`, `SRW*`, `TMWC10`, and `TSRW10`
 
-3. Next: investigate small functional-group aliases only with targeted counterexample
+3. Completed: investigate small functional-group aliases only with targeted counterexample
    molecules:
    - nitrile, nitro, ether, thiol, sulfide, and aromatic heteroatom aliases.
+   - Added only aliases that passed targeted counterexamples: `NaaNH`, `NaaO`,
+     `NddsN`, `NsNH2`, `NsSH`, `NssO`, `NssS`, `NtN`, and `NtsC`.
 
-4. Treat `Chi*`, `Kappa*`, `fr_*`, `AUTOCORR2D`, and `BCUT2D_*` as separate
+4. Next: treat `Chi*`, `Kappa*`, `fr_*`, `AUTOCORR2D`, and `BCUT2D_*` as separate
    investigations. Do not add them in bulk to the Mordred-compatible output.
 
 ## Implementation Rules

@@ -41,6 +41,15 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "nSpiro": "CalcNumSpiroAtoms",
     "nBridgehead": "CalcNumBridgeheadAtoms",
     "FCSP3": "CalcFractionCSP3",
+    "NtsC": "fr_nitrile",
+    "NtN": "fr_nitrile",
+    "NddsN": "fr_nitro",
+    "NssO": "fr_ether",
+    "NsSH": "fr_SH",
+    "NssS": "fr_sulfide",
+    "NsNH2": "fr_NH2",
+    "NaaNH": "fr_Ar_NH",
+    "NaaO": "fr_furan",
 }
 
 _RING_SIZE_PREFIXES = ("", *(str(i) for i in range(3, 13)), "G12")
