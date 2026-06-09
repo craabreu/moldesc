@@ -27,6 +27,20 @@ _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
 _PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
 _WALK_COUNT_PATTERN = re.compile(r"^(T)?(?:(M)WC|(SR)W)(\d+)$")
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
+_ACID_GROUP_SMARTS = (
+    "[O;H1]-[C,S,P]=O",
+    "[*;-;!$(*~[*;+])]",
+    "[NH](S(=O)=O)C(F)(F)F",
+    "n1nnnc1",
+)
+_BASE_GROUP_SMARTS = (
+    "[NH2]-[CX4]",
+    "[NH](-[CX4])-[CX4]",
+    "N(-[CX4])(-[CX4])-[CX4]",
+    "[*;+;!$(*~[*;-])]",
+    "N=C-N",
+    "N-C=N",
+)
 _ATOM_SYMBOLS_BY_DESCRIPTOR = {
     "nB": "B",
     "nC": "C",
@@ -350,6 +364,15 @@ def _estate_atom_type_count(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.estate_atom_type_counts[name]
 
 
+def _smarts_count_descriptor(smarts: tuple[str, ...]) -> DescriptorFunction:
+    pattern = Chem.MolFromSmarts("[" + ",".join(f"$({value})" for value in smarts) + "]")
+    if pattern is None:
+        msg = f"invalid SMARTS pattern set: {smarts!r}"
+        raise ValueError(msg)
+
+    return lambda ctx: len(ctx.mol.GetSubstructMatches(pattern))
+
+
 def _is_single_bond(bond: rdchem.Bond) -> bool:
     return bond.GetBondType() == rdchem.BondType.SINGLE
 
@@ -558,9 +581,11 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "Zagreb2": _zagreb_index_2,
     "mZagreb1": _modified_zagreb_index_1,
     "mZagreb2": _modified_zagreb_index_2,
+    "nAcid": _smarts_count_descriptor(_ACID_GROUP_SMARTS),
     "nAromAtom": _aromatic_atom_count,
     "nAromBond": lambda ctx: _bond_count_by_predicate(ctx, _is_aromatic_bond),
     "nAtom": lambda ctx: ctx.total_atom_count_including_hydrogen,
+    "nBase": _smarts_count_descriptor(_BASE_GROUP_SMARTS),
     "nBridgehead": _rdkit_descriptor(rdMolDescriptors.CalcNumBridgeheadAtoms),
     "nBonds": _bond_count,
     "nBondsA": lambda ctx: _bond_count_by_predicate(ctx, _is_aromatic_bond),

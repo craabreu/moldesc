@@ -15,9 +15,9 @@ against the Mordred test oracle on the validation panel.
 
 ## Current State
 
-- Supported Mordred-compatible descriptors: 361.
-- Validation molecules: 52.
-- Compatibility-checked numerical values: 18,772.
+- Supported Mordred-compatible descriptors: 363.
+- Validation molecules: 60.
+- Compatibility-checked numerical values: 21,780.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` is intentionally excluded from the validation panel for now because
@@ -58,12 +58,17 @@ against the Mordred test oracle on the validation panel.
      general atom-type implementation.
    - All 79 `N...` descriptors match Mordred on the validation panel.
 
-5. Next: investigate `fr_*`-style functional group counts as narrow,
+5. Completed: investigate `fr_*`-style functional group counts as narrow,
    counterexample-driven batches:
    - Prefer exact Mordred atom-type descriptors when a `fr_*` helper only
      happens to overlap on a simple molecule.
-   - Add panel molecules for each accepted functional group.
-   - Keep failures and near misses documented outside the supported list.
+   - Added `nAcid` and `nBase` using the Mordred AcidBase SMARTS definitions
+     with RDKit substructure matching.
+   - Added targeted panel molecules for carboxylates, tetrazole, aliphatic
+     amines, guanidine, sulfonamide, and aromatic/amide counterexamples.
+   - Decision for future expansion: do not bulk-add RDKit `fr_*` helpers.
+     Only add functional-group descriptors when a Mordred descriptor name has
+     a proven RDKit-only implementation and targeted counterexamples.
 
 6. Next: investigate topological index families separately:
    - `Chi*`

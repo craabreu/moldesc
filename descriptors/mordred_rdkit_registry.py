@@ -41,6 +41,8 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "nSpiro": "CalcNumSpiroAtoms",
     "nBridgehead": "CalcNumBridgeheadAtoms",
     "FCSP3": "CalcFractionCSP3",
+    "nAcid": "Mordred AcidicGroupCount SMARTS",
+    "nBase": "Mordred BasicGroupCount SMARTS",
 }
 
 ESTATE_ATOM_TYPE_DESCRIPTORS: tuple[str, ...] = (

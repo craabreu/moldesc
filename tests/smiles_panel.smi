@@ -1,9 +1,12 @@
 CCO ethanol
 CC(=O)O acetic_acid
+C(=O)O formic_acid
+CC(=O)[O-] acetate_anion
 CCN(CC)CC triethylamine
 c1ccccc1 benzene
 c1ccncc1 pyridine
 O=C(O)c1ccccc1 benzoic_acid
+O=C([O-])c1ccccc1 benzoate_anion
 CCOC(=O)c1ccccc1 ethyl_benzoate
 C1CCCCC1 cyclohexane
 CC(C)(C)c1ccc(O)cc1 tert_butyl_phenol
@@ -33,6 +36,7 @@ C1CCCCCCCCCCCC1 cyclotridecane
 c1ccoc1 furan
 c1cc[nH]c1 pyrrole
 c1ncc[nH]1 imidazole
+c1nnn[nH]1 tetrazole
 c1ccc2ccccc2c1 naphthalene
 c1ccc2[nH]ccc2c1 indole
 C1COCCN1 morpholine
@@ -48,5 +52,9 @@ CSC dimethyl_sulfide
 CS(=O)C dmso
 CC(=O)N acetamide
 CN methylamine
+CNC secondary_amine
+CN(C)C tertiary_amine
+NC(=N)N guanidine
+CS(=O)(=O)N sulfonamide
 Nc1ccccc1 aniline
 c1ccc2occc2c1 benzofuran
