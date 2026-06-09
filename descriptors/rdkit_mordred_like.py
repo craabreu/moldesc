@@ -62,6 +62,10 @@ class _DescriptorContext:
         )
 
     @cached_property
+    def bond_orders(self) -> tuple[float, ...]:
+        return tuple(bond.GetBondTypeAsDouble() for bond in self.bonds)
+
+    @cached_property
     def distance_matrix(self):
         return self._compute_distance_matrix()
 
@@ -94,18 +98,28 @@ class _DescriptorContext:
             self._path_count_cache[order] = self._compute_path_count(order)
         return self._path_count_cache[order]
 
-    def _bond_ids_to_atom_ids(self, path) -> tuple[int, ...]:
+    def _path_bond_ids_to_atom_ids_and_pi_weight(
+        self,
+        path,
+    ) -> tuple[tuple[int, ...], float]:
         path_iter = iter(path)
+        pi_weight = 1.0
 
         try:
-            atom0_from, atom0_to = self.bond_atom_pairs[next(path_iter)]
+            bond_index = next(path_iter)
         except StopIteration:
-            return ()
+            return (), pi_weight
+
+        pi_weight *= self.bond_orders[bond_index]
+        atom0_from, atom0_to = self.bond_atom_pairs[bond_index]
 
         try:
-            atom1_from, atom1_to = self.bond_atom_pairs[next(path_iter)]
+            bond_index = next(path_iter)
         except StopIteration:
-            return atom0_from, atom0_to
+            return (atom0_from, atom0_to), pi_weight
+
+        pi_weight *= self.bond_orders[bond_index]
+        atom1_from, atom1_to = self.bond_atom_pairs[bond_index]
 
         if atom0_from in [atom1_from, atom1_to]:
             atoms = [atom0_to, atom0_from]
@@ -116,6 +130,7 @@ class _DescriptorContext:
 
         for bond_index in path_iter:
             atom_from, atom_to = self.bond_atom_pairs[bond_index]
+            pi_weight *= self.bond_orders[bond_index]
             atoms.append(current)
 
             if atom_from == current:
@@ -124,7 +139,7 @@ class _DescriptorContext:
                 current = atom_from
 
         atoms.append(current)
-        return tuple(atoms)
+        return tuple(atoms), pi_weight
 
     def _compute_path_count(self, order: int) -> tuple[int, float]:
         path_count = 0
@@ -132,20 +147,13 @@ class _DescriptorContext:
 
         for path in Chem.FindAllPathsOfLengthN(self.mol, order):
             atom_ids = set()
-            previous = None
-            pi_weight = 1.0
 
-            for atom_index in self._bond_ids_to_atom_ids(path):
+            atom_path, pi_weight = self._path_bond_ids_to_atom_ids_and_pi_weight(path)
+            for atom_index in atom_path:
                 if atom_index in atom_ids:
                     break
 
                 atom_ids.add(atom_index)
-
-                if previous is not None:
-                    bond = self.mol.GetBondBetweenAtoms(previous, atom_index)
-                    pi_weight *= bond.GetBondTypeAsDouble()
-
-                previous = atom_index
             else:
                 path_count += 1
                 pi_path_count += pi_weight
