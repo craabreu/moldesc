@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import cached_property
+import math
 import re
 
 from rdkit import Chem
@@ -11,14 +12,18 @@ from rdkit.Chem import rdchem
 from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
 
 from .mordred_rdkit_registry import (
+    PATH_COUNT_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
+    WALK_COUNT_DESCRIPTORS,
 )
 
 DescriptorValue = float | int
 DescriptorFunction = Callable[["_DescriptorContext"], DescriptorValue]
 
 _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
+_PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
+_WALK_COUNT_PATTERN = re.compile(r"^(T)?(?:(M)WC|(SR)W)(\d+)$")
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
 _ATOM_SYMBOLS_BY_DESCRIPTOR = {
     "nB": "B",
@@ -39,6 +44,8 @@ class _DescriptorContext:
 
     def __init__(self, mol: Chem.Mol) -> None:
         self.mol = mol
+        self._adjacency_power_cache = {}
+        self._path_count_cache = {}
 
     @cached_property
     def atoms(self) -> tuple[rdchem.Atom, ...]:
@@ -47,6 +54,12 @@ class _DescriptorContext:
     @cached_property
     def bonds(self) -> tuple[rdchem.Bond, ...]:
         return tuple(self.mol.GetBonds())
+
+    @cached_property
+    def bond_atom_pairs(self) -> tuple[tuple[int, int], ...]:
+        return tuple(
+            (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()) for bond in self.bonds
+        )
 
     @cached_property
     def distance_matrix(self):
@@ -65,6 +78,79 @@ class _DescriptorContext:
     @cached_property
     def adjacency_valences(self) -> tuple[float, ...]:
         return tuple(float(value) for value in self.adjacency_matrix.sum(axis=0))
+
+    def adjacency_power(self, order: int):
+        if order not in self._adjacency_power_cache:
+            if order == 1:
+                self._adjacency_power_cache[order] = self.adjacency_matrix
+            else:
+                self._adjacency_power_cache[order] = self.adjacency_power(
+                    order - 1
+                ).dot(self.adjacency_matrix)
+        return self._adjacency_power_cache[order]
+
+    def path_count(self, order: int) -> tuple[int, float]:
+        if order not in self._path_count_cache:
+            self._path_count_cache[order] = self._compute_path_count(order)
+        return self._path_count_cache[order]
+
+    def _bond_ids_to_atom_ids(self, path) -> tuple[int, ...]:
+        path_iter = iter(path)
+
+        try:
+            atom0_from, atom0_to = self.bond_atom_pairs[next(path_iter)]
+        except StopIteration:
+            return ()
+
+        try:
+            atom1_from, atom1_to = self.bond_atom_pairs[next(path_iter)]
+        except StopIteration:
+            return atom0_from, atom0_to
+
+        if atom0_from in [atom1_from, atom1_to]:
+            atoms = [atom0_to, atom0_from]
+            current = atom1_from if atom0_from == atom1_to else atom1_to
+        else:
+            atoms = [atom0_from, atom0_to]
+            current = atom1_from if atom0_to == atom1_to else atom1_to
+
+        for bond_index in path_iter:
+            atom_from, atom_to = self.bond_atom_pairs[bond_index]
+            atoms.append(current)
+
+            if atom_from == current:
+                current = atom_to
+            else:
+                current = atom_from
+
+        atoms.append(current)
+        return tuple(atoms)
+
+    def _compute_path_count(self, order: int) -> tuple[int, float]:
+        path_count = 0
+        pi_path_count = 0.0
+
+        for path in Chem.FindAllPathsOfLengthN(self.mol, order):
+            atom_ids = set()
+            previous = None
+            pi_weight = 1.0
+
+            for atom_index in self._bond_ids_to_atom_ids(path):
+                if atom_index in atom_ids:
+                    break
+
+                atom_ids.add(atom_index)
+
+                if previous is not None:
+                    bond = self.mol.GetBondBetweenAtoms(previous, atom_index)
+                    pi_weight *= bond.GetBondTypeAsDouble()
+
+                previous = atom_index
+            else:
+                path_count += 1
+                pi_path_count += pi_weight
+
+        return path_count, pi_path_count
 
     @cached_property
     def ring_atom_sets(self) -> tuple[set[int], ...]:
@@ -350,6 +436,76 @@ def _ring_count_descriptor(name: str) -> DescriptorFunction:
     return calc
 
 
+def _path_count_descriptor(name: str) -> DescriptorFunction:
+    match = _PATH_COUNT_PATTERN.match(name)
+    if match is None:
+        msg = f"unsupported path count descriptor: {name}"
+        raise ValueError(msg)
+
+    total_prefix, pi_prefix, order_text = match.groups()
+    order = int(order_text)
+    use_pi = pi_prefix is not None
+    total = total_prefix is not None
+
+    def raw_value_for_order(ctx: _DescriptorContext, path_order: int) -> int | float:
+        if path_order == 0:
+            return ctx.mol.GetNumAtoms()
+        path_count, pi_path_count = ctx.path_count(path_order)
+        return pi_path_count if use_pi else path_count
+
+    def value_for_order(ctx: _DescriptorContext, path_order: int) -> int | float:
+        value = raw_value_for_order(ctx, path_order)
+        if use_pi:
+            return math.log(value + 1)
+        return value
+
+    def calc(ctx: _DescriptorContext) -> int | float:
+        if total:
+            value = sum(
+                raw_value_for_order(ctx, path_order)
+                for path_order in range(0, order + 1)
+            )
+            if use_pi:
+                return math.log(value + 1)
+            return value
+        return value_for_order(ctx, order)
+
+    return calc
+
+
+def _walk_count_descriptor(name: str) -> DescriptorFunction:
+    match = _WALK_COUNT_PATTERN.match(name)
+    if match is None:
+        msg = f"unsupported walk count descriptor: {name}"
+        raise ValueError(msg)
+
+    total_prefix, molecular_walk, self_returning_walk, order_text = match.groups()
+    order = int(order_text)
+    total = total_prefix is not None
+    self_returning = self_returning_walk is not None
+
+    def value_for_order(ctx: _DescriptorContext, walk_order: int) -> float:
+        matrix_power = ctx.adjacency_power(walk_order)
+        if self_returning:
+            return math.log(matrix_power.trace() + 1)
+        if walk_order == 1:
+            return 0.5 * matrix_power.sum()
+        return math.log(matrix_power.sum() + 1)
+
+    def calc(ctx: _DescriptorContext) -> float:
+        if total:
+            values = [float(ctx.mol.GetNumAtoms())]
+            start = 2 if self_returning else 1
+            values.extend(
+                value_for_order(ctx, walk_order)
+                for walk_order in range(start, order + 1)
+            )
+            return sum(values)
+        return value_for_order(ctx, order)
+
+    return calc
+
+
 def _rdkit_descriptor(
     function: Callable[[Chem.Mol], DescriptorValue],
 ) -> DescriptorFunction:
@@ -414,6 +570,12 @@ for _name, _symbol in _ATOM_SYMBOLS_BY_DESCRIPTOR.items():
 
 for _name in RING_COUNT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _ring_count_descriptor(_name)
+
+for _name in PATH_COUNT_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _path_count_descriptor(_name)
+
+for _name in WALK_COUNT_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _walk_count_descriptor(_name)
 
 for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS and hasattr(Descriptors, _name):

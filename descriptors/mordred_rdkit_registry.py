@@ -83,6 +83,27 @@ MORDRED_RDKIT_ALIASES.update(
     }
 )
 
+PATH_COUNT_DESCRIPTORS: tuple[str, ...] = (
+    *(f"MPC{i}" for i in range(2, 11)),
+    "TMPC10",
+    *(f"piPC{i}" for i in range(1, 11)),
+    "TpiPC10",
+)
+
+WALK_COUNT_DESCRIPTORS: tuple[str, ...] = (
+    *(f"MWC{i:02d}" for i in range(1, 11)),
+    "TMWC10",
+    *(f"SRW{i:02d}" for i in range(2, 11)),
+    "TSRW10",
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
+)
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit adjacency walk count calculation" for name in WALK_COUNT_DESCRIPTORS}
+)
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",

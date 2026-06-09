@@ -15,9 +15,9 @@ against the Mordred test oracle on the validation panel.
 
 ## Current State
 
-- Supported Mordred-compatible descriptors: 240.
+- Supported Mordred-compatible descriptors: 282.
 - Validation molecules: 40.
-- Compatibility-checked numerical values: 9,600.
+- Compatibility-checked numerical values: 11,280.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` is intentionally excluded from the validation panel for now because
@@ -40,11 +40,12 @@ against the Mordred test oracle on the validation panel.
    - `mZagreb1`
    - `mZagreb2`
 
-2. After those pass, investigate path and walk count families:
+2. Completed: add path and walk count families:
    - `MPC*`
    - `MWC*`
+   - `piPC*`, `TMPC10`, `TpiPC10`, `SRW*`, `TMWC10`, and `TSRW10`
 
-3. Investigate small functional-group aliases only with targeted counterexample
+3. Next: investigate small functional-group aliases only with targeted counterexample
    molecules:
    - nitrile, nitro, ether, thiol, sulfide, and aromatic heteroatom aliases.
 

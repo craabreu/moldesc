@@ -47,6 +47,10 @@ Mordred names implemented with explicit RDKit-only helpers:
   aromatic/aliphatic, hetero, and fused-ring-system variants
 - Graph topology: `Diameter`, `Radius`, `TopoShapeIndex`, `PetitjeanIndex`,
   `WPath`, `WPol`, `Zagreb1`, `Zagreb2`, `mZagreb1`, `mZagreb2`
+- Path counts: `MPC2` through `MPC10`, `TMPC10`, `piPC1` through
+  `piPC10`, `TpiPC10`
+- Walk counts: `MWC01` through `MWC10`, `TMWC10`, `SRW02` through
+  `SRW10`, `TSRW10`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
