@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import cached_property
 import re
 
 from rdkit import Chem
@@ -15,7 +16,7 @@ from .mordred_rdkit_registry import (
 )
 
 DescriptorValue = float | int
-DescriptorFunction = Callable[[Chem.Mol], DescriptorValue]
+DescriptorFunction = Callable[["_DescriptorContext"], DescriptorValue]
 
 _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
@@ -33,105 +34,210 @@ _ATOM_SYMBOLS_BY_DESCRIPTOR = {
 }
 
 
-def _total_atom_count_including_hydrogen(mol: Chem.Mol) -> int:
-    return mol.GetNumAtoms() + sum(atom.GetTotalNumHs() for atom in mol.GetAtoms())
+class _DescriptorContext:
+    """Per-molecule cache for descriptor calculations."""
+
+    def __init__(self, mol: Chem.Mol) -> None:
+        self.mol = mol
+
+    @cached_property
+    def atoms(self) -> tuple[rdchem.Atom, ...]:
+        return tuple(self.mol.GetAtoms())
+
+    @cached_property
+    def bonds(self) -> tuple[rdchem.Bond, ...]:
+        return tuple(self.mol.GetBonds())
+
+    @cached_property
+    def distance_matrix(self):
+        return self._compute_distance_matrix()
+
+    def _compute_distance_matrix(self):
+        return Chem.GetDistanceMatrix(self.mol, force=True)
+
+    @cached_property
+    def adjacency_matrix(self):
+        return self._compute_adjacency_matrix()
+
+    def _compute_adjacency_matrix(self):
+        return Chem.GetAdjacencyMatrix(self.mol, useBO=False, force=True)
+
+    @cached_property
+    def adjacency_valences(self) -> tuple[float, ...]:
+        return tuple(float(value) for value in self.adjacency_matrix.sum(axis=0))
+
+    @cached_property
+    def ring_atom_sets(self) -> tuple[set[int], ...]:
+        return self._compute_ring_atom_sets()
+
+    def _compute_ring_atom_sets(self) -> tuple[set[int], ...]:
+        return tuple(set(ring) for ring in self.mol.GetRingInfo().AtomRings())
+
+    @cached_property
+    def fused_ring_systems(self) -> tuple[set[int], ...]:
+        return self._compute_fused_ring_systems()
+
+    def _compute_fused_ring_systems(self) -> tuple[set[int], ...]:
+        rings = self.ring_atom_sets
+        parent = list(range(len(rings)))
+
+        def find(index: int) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        def union(left: int, right: int) -> None:
+            left_root = find(left)
+            right_root = find(right)
+            if left_root != right_root:
+                parent[right_root] = left_root
+
+        for left, left_ring in enumerate(rings):
+            for right in range(left + 1, len(rings)):
+                if len(left_ring & rings[right]) >= 2:
+                    union(left, right)
+
+        component_atoms: dict[int, set[int]] = {}
+        component_ring_counts: dict[int, int] = {}
+        for index, ring in enumerate(rings):
+            root = find(index)
+            component_atoms.setdefault(root, set()).update(ring)
+            component_ring_counts[root] = component_ring_counts.get(root, 0) + 1
+
+        return tuple(
+            atoms
+            for root, atoms in component_atoms.items()
+            if component_ring_counts[root] >= 2
+        )
+
+    @cached_property
+    def implicit_hydrogen_count(self) -> int:
+        return self._compute_implicit_hydrogen_count()
+
+    def _compute_implicit_hydrogen_count(self) -> int:
+        return sum(atom.GetTotalNumHs() for atom in self.atoms)
+
+    @cached_property
+    def kekulized_mol(self) -> Chem.Mol:
+        return self._compute_kekulized_mol()
+
+    def _compute_kekulized_mol(self) -> Chem.Mol:
+        kekule_mol = Chem.Mol(self.mol)
+        Chem.Kekulize(kekule_mol, clearAromaticFlags=True)
+        return kekule_mol
+
+    @cached_property
+    def exact_molecular_weight(self) -> float:
+        return Descriptors.ExactMolWt(self.mol)
+
+    @cached_property
+    def total_atom_count_including_hydrogen(self) -> int:
+        return self.mol.GetNumAtoms() + self.implicit_hydrogen_count
+
+    @cached_property
+    def atom_symbol_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for atom in self.atoms:
+            symbol = atom.GetSymbol()
+            counts[symbol] = counts.get(symbol, 0) + 1
+        return counts
+
+    @cached_property
+    def aromatic_atom_count(self) -> int:
+        return sum(1 for atom in self.atoms if atom.GetIsAromatic())
+
+    @cached_property
+    def halogen_count(self) -> int:
+        return sum(
+            1
+            for atom in self.atoms
+            if atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS
+        )
 
 
-def _average_molecular_weight(mol: Chem.Mol) -> float:
-    atom_count = _total_atom_count_including_hydrogen(mol)
+def _average_molecular_weight(ctx: _DescriptorContext) -> float:
+    atom_count = ctx.total_atom_count_including_hydrogen
     if atom_count == 0:
         return float("nan")
-    return Descriptors.ExactMolWt(mol) / atom_count
+    return ctx.exact_molecular_weight / atom_count
 
 
-def _distance_matrix(mol: Chem.Mol):
-    return Chem.GetDistanceMatrix(mol, force=True)
-
-
-def _adjacency_valences(mol: Chem.Mol) -> list[float]:
-    matrix = Chem.GetAdjacencyMatrix(mol, useBO=False, force=True)
-    return [float(value) for value in matrix.sum(axis=0)]
-
-
-def _diameter(mol: Chem.Mol) -> int:
-    matrix = _distance_matrix(mol)
-    if matrix.size == 0:
+def _diameter(ctx: _DescriptorContext) -> int:
+    if ctx.distance_matrix.size == 0:
         return 0
-    return int(matrix.max())
+    return int(ctx.distance_matrix.max())
 
 
-def _radius(mol: Chem.Mol) -> int:
-    matrix = _distance_matrix(mol)
-    if matrix.size == 0:
+def _radius(ctx: _DescriptorContext) -> int:
+    if ctx.distance_matrix.size == 0:
         return 0
-    return int(matrix.max(axis=0).min())
+    return int(ctx.distance_matrix.max(axis=0).min())
 
 
-def _topological_shape_index(mol: Chem.Mol) -> float:
-    radius = _radius(mol)
-    return (_diameter(mol) - radius) / radius
+def _topological_shape_index(ctx: _DescriptorContext) -> float:
+    radius = _radius(ctx)
+    return (_diameter(ctx) - radius) / radius
 
 
-def _petitjean_index(mol: Chem.Mol) -> float:
-    diameter = _diameter(mol)
-    return (_diameter(mol) - _radius(mol)) / diameter
+def _petitjean_index(ctx: _DescriptorContext) -> float:
+    diameter = _diameter(ctx)
+    return (_diameter(ctx) - _radius(ctx)) / diameter
 
 
-def _wiener_path_index(mol: Chem.Mol) -> int:
-    return int(0.5 * _distance_matrix(mol).sum())
+def _wiener_path_index(ctx: _DescriptorContext) -> int:
+    return int(0.5 * ctx.distance_matrix.sum())
 
 
-def _wiener_polarity_index(mol: Chem.Mol) -> int:
-    return int(0.5 * (_distance_matrix(mol) == 3).sum())
+def _wiener_polarity_index(ctx: _DescriptorContext) -> int:
+    return int(0.5 * (ctx.distance_matrix == 3).sum())
 
 
-def _zagreb_index_1(mol: Chem.Mol) -> float:
-    return sum(valence**2 for valence in _adjacency_valences(mol))
+def _zagreb_index_1(ctx: _DescriptorContext) -> float:
+    return sum(valence**2 for valence in ctx.adjacency_valences)
 
 
-def _zagreb_index_2(mol: Chem.Mol) -> float:
-    valences = _adjacency_valences(mol)
+def _zagreb_index_2(ctx: _DescriptorContext) -> float:
+    valences = ctx.adjacency_valences
     return float(
         sum(
             valences[bond.GetBeginAtomIdx()] * valences[bond.GetEndAtomIdx()]
-            for bond in mol.GetBonds()
+            for bond in ctx.bonds
         )
     )
 
 
-def _modified_zagreb_index_1(mol: Chem.Mol) -> float:
-    return sum(valence**-2 for valence in _adjacency_valences(mol))
+def _modified_zagreb_index_1(ctx: _DescriptorContext) -> float:
+    return sum(valence**-2 for valence in ctx.adjacency_valences)
 
 
-def _modified_zagreb_index_2(mol: Chem.Mol) -> float:
-    valences = _adjacency_valences(mol)
+def _modified_zagreb_index_2(ctx: _DescriptorContext) -> float:
+    valences = ctx.adjacency_valences
     return float(
         sum(
             (valences[bond.GetBeginAtomIdx()] * valences[bond.GetEndAtomIdx()]) ** -1
-            for bond in mol.GetBonds()
+            for bond in ctx.bonds
         )
     )
 
 
-def _hydrogen_atom_count(mol: Chem.Mol) -> int:
+def _hydrogen_atom_count(ctx: _DescriptorContext) -> int:
     return sum(
         1 if atom.GetAtomicNum() == 1 else atom.GetTotalNumHs()
-        for atom in mol.GetAtoms()
+        for atom in ctx.atoms
     )
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
-    return lambda mol: sum(1 for atom in mol.GetAtoms() if atom.GetSymbol() == symbol)
+    return lambda ctx: ctx.atom_symbol_counts.get(symbol, 0)
 
 
-def _halogen_atom_count(mol: Chem.Mol) -> int:
-    return sum(
-        1 for atom in mol.GetAtoms() if atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS
-    )
+def _halogen_atom_count(ctx: _DescriptorContext) -> int:
+    return ctx.halogen_count
 
 
-def _aromatic_atom_count(mol: Chem.Mol) -> int:
-    return sum(1 for atom in mol.GetAtoms() if atom.GetIsAromatic())
+def _aromatic_atom_count(ctx: _DescriptorContext) -> int:
+    return ctx.aromatic_atom_count
 
 
 def _is_single_bond(bond: rdchem.Bond) -> bool:
@@ -150,29 +256,29 @@ def _is_aromatic_bond(bond: rdchem.Bond) -> bool:
     return bond.GetIsAromatic()
 
 
-def _implicit_hydrogen_bond_count(mol: Chem.Mol) -> int:
-    return sum(atom.GetTotalNumHs() for atom in mol.GetAtoms())
+def _implicit_hydrogen_bond_count(ctx: _DescriptorContext) -> int:
+    return ctx.implicit_hydrogen_count
 
 
-def _bond_count(mol: Chem.Mol) -> int:
-    return mol.GetNumBonds() + _implicit_hydrogen_bond_count(mol)
+def _bond_count(ctx: _DescriptorContext) -> int:
+    return len(ctx.bonds) + ctx.implicit_hydrogen_count
 
 
 def _bond_count_by_predicate(
-    mol: Chem.Mol,
+    ctx: _DescriptorContext,
     predicate: Callable[[rdchem.Bond], bool],
     *,
     include_implicit_hydrogen_bonds: bool = False,
 ) -> int:
-    count = sum(1 for bond in mol.GetBonds() if predicate(bond))
+    count = sum(1 for bond in ctx.bonds if predicate(bond))
     if include_implicit_hydrogen_bonds:
-        count += _implicit_hydrogen_bond_count(mol)
+        count += ctx.implicit_hydrogen_count
     return count
 
 
-def _multiple_bond_count(mol: Chem.Mol) -> int:
+def _multiple_bond_count(ctx: _DescriptorContext) -> int:
     return _bond_count_by_predicate(
-        mol,
+        ctx,
         lambda bond: _is_double_bond(bond)
         or _is_triple_bond(bond)
         or _is_aromatic_bond(bond),
@@ -180,21 +286,21 @@ def _multiple_bond_count(mol: Chem.Mol) -> int:
 
 
 def _kekulized_bond_count(
-    mol: Chem.Mol,
+    ctx: _DescriptorContext,
     bond_type: rdchem.BondType,
     *,
     include_implicit_hydrogen_bonds: bool = False,
 ) -> int:
-    kekule_mol = Chem.Mol(mol)
-    Chem.Kekulize(kekule_mol, clearAromaticFlags=True)
-    count = sum(1 for bond in kekule_mol.GetBonds() if bond.GetBondType() == bond_type)
+    count = sum(
+        1 for bond in ctx.kekulized_mol.GetBonds() if bond.GetBondType() == bond_type
+    )
     if include_implicit_hydrogen_bonds:
-        count += _implicit_hydrogen_bond_count(mol)
+        count += ctx.implicit_hydrogen_count
     return count
 
 
 def _ring_matches_filters(
-    mol: Chem.Mol,
+    ctx: _DescriptorContext,
     atoms: set[int],
     size: str | None,
     aromaticity: str | None,
@@ -207,53 +313,18 @@ def _ring_matches_filters(
         return False
 
     if aromaticity is not None:
-        is_aromatic = all(mol.GetAtomWithIdx(atom).GetIsAromatic() for atom in atoms)
+        is_aromatic = all(ctx.mol.GetAtomWithIdx(atom).GetIsAromatic() for atom in atoms)
         if aromaticity == "a" and not is_aromatic:
             return False
         if aromaticity == "A" and is_aromatic:
             return False
 
     if hetero is not None and not any(
-        mol.GetAtomWithIdx(atom).GetAtomicNum() != 6 for atom in atoms
+        ctx.mol.GetAtomWithIdx(atom).GetAtomicNum() != 6 for atom in atoms
     ):
         return False
 
     return True
-
-
-def _fused_ring_systems(mol: Chem.Mol) -> list[set[int]]:
-    rings = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
-    parent = list(range(len(rings)))
-
-    def find(index: int) -> int:
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = parent[index]
-        return index
-
-    def union(left: int, right: int) -> None:
-        left_root = find(left)
-        right_root = find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
-    for left, left_ring in enumerate(rings):
-        for right in range(left + 1, len(rings)):
-            if len(left_ring & rings[right]) >= 2:
-                union(left, right)
-
-    component_atoms: dict[int, set[int]] = {}
-    component_ring_counts: dict[int, int] = {}
-    for index, ring in enumerate(rings):
-        root = find(index)
-        component_atoms.setdefault(root, set()).update(ring)
-        component_ring_counts[root] = component_ring_counts.get(root, 0) + 1
-
-    return [
-        atoms
-        for root, atoms in component_atoms.items()
-        if component_ring_counts[root] >= 2
-    ]
 
 
 def _ring_count_descriptor(name: str) -> DescriptorFunction:
@@ -264,33 +335,42 @@ def _ring_count_descriptor(name: str) -> DescriptorFunction:
 
     size, fused, aromaticity, hetero = match.groups()
 
-    def calc(mol: Chem.Mol) -> int:
+    def calc(ctx: _DescriptorContext) -> int:
         if fused is not None:
-            atom_sets = _fused_ring_systems(mol)
+            atom_sets = ctx.fused_ring_systems
         else:
-            atom_sets = [set(ring) for ring in mol.GetRingInfo().AtomRings()]
+            atom_sets = ctx.ring_atom_sets
 
         return sum(
             1
             for atoms in atom_sets
-            if _ring_matches_filters(mol, atoms, size, aromaticity, hetero)
+            if _ring_matches_filters(ctx, atoms, size, aromaticity, hetero)
         )
 
     return calc
 
 
+def _rdkit_descriptor(
+    function: Callable[[Chem.Mol], DescriptorValue],
+) -> DescriptorFunction:
+    return lambda ctx: function(ctx.mol)
+
+
 _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "AMW": _average_molecular_weight,
-    "BertzCT": Descriptors.BertzCT,
+    "BertzCT": _rdkit_descriptor(Descriptors.BertzCT),
     "Diameter": _diameter,
-    "FCSP3": rdMolDescriptors.CalcFractionCSP3,
-    "MW": Descriptors.ExactMolWt,
+    "FCSP3": _rdkit_descriptor(rdMolDescriptors.CalcFractionCSP3),
+    "MW": lambda ctx: ctx.exact_molecular_weight,
     "PetitjeanIndex": _petitjean_index,
     "Radius": _radius,
-    "SMR": Crippen.MolMR,
-    "SLogP": Crippen.MolLogP,
-    "TopoPSA": lambda mol: rdMolDescriptors.CalcTPSA(mol, includeSandP=True),
-    "TopoPSA(NO)": rdMolDescriptors.CalcTPSA,
+    "SMR": _rdkit_descriptor(Crippen.MolMR),
+    "SLogP": _rdkit_descriptor(Crippen.MolLogP),
+    "TopoPSA": lambda ctx: rdMolDescriptors.CalcTPSA(
+        ctx.mol,
+        includeSandP=True,
+    ),
+    "TopoPSA(NO)": _rdkit_descriptor(rdMolDescriptors.CalcTPSA),
     "TopoShapeIndex": _topological_shape_index,
     "WPath": _wiener_path_index,
     "WPol": _wiener_polarity_index,
@@ -299,33 +379,33 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "mZagreb1": _modified_zagreb_index_1,
     "mZagreb2": _modified_zagreb_index_2,
     "nAromAtom": _aromatic_atom_count,
-    "nAromBond": lambda mol: _bond_count_by_predicate(mol, _is_aromatic_bond),
-    "nAtom": _total_atom_count_including_hydrogen,
-    "nBridgehead": rdMolDescriptors.CalcNumBridgeheadAtoms,
+    "nAromBond": lambda ctx: _bond_count_by_predicate(ctx, _is_aromatic_bond),
+    "nAtom": lambda ctx: ctx.total_atom_count_including_hydrogen,
+    "nBridgehead": _rdkit_descriptor(rdMolDescriptors.CalcNumBridgeheadAtoms),
     "nBonds": _bond_count,
-    "nBondsA": lambda mol: _bond_count_by_predicate(mol, _is_aromatic_bond),
-    "nBondsD": lambda mol: _bond_count_by_predicate(mol, _is_double_bond),
-    "nBondsKD": lambda mol: _kekulized_bond_count(mol, rdchem.BondType.DOUBLE),
-    "nBondsKS": lambda mol: _kekulized_bond_count(
-        mol,
+    "nBondsA": lambda ctx: _bond_count_by_predicate(ctx, _is_aromatic_bond),
+    "nBondsD": lambda ctx: _bond_count_by_predicate(ctx, _is_double_bond),
+    "nBondsKD": lambda ctx: _kekulized_bond_count(ctx, rdchem.BondType.DOUBLE),
+    "nBondsKS": lambda ctx: _kekulized_bond_count(
+        ctx,
         rdchem.BondType.SINGLE,
         include_implicit_hydrogen_bonds=True,
     ),
     "nBondsM": _multiple_bond_count,
-    "nBondsO": Chem.Mol.GetNumBonds,
-    "nBondsS": lambda mol: _bond_count_by_predicate(
-        mol,
+    "nBondsO": lambda ctx: len(ctx.bonds),
+    "nBondsS": lambda ctx: _bond_count_by_predicate(
+        ctx,
         _is_single_bond,
         include_implicit_hydrogen_bonds=True,
     ),
-    "nBondsT": lambda mol: _bond_count_by_predicate(mol, _is_triple_bond),
-    "nHBAcc": rdMolDescriptors.CalcNumHBA,
-    "nHBDon": rdMolDescriptors.CalcNumHBD,
+    "nBondsT": lambda ctx: _bond_count_by_predicate(ctx, _is_triple_bond),
+    "nHBAcc": _rdkit_descriptor(rdMolDescriptors.CalcNumHBA),
+    "nHBDon": _rdkit_descriptor(rdMolDescriptors.CalcNumHBD),
     "nH": _hydrogen_atom_count,
-    "nHeavyAtom": Descriptors.HeavyAtomCount,
-    "nHetero": rdMolDescriptors.CalcNumHeteroatoms,
-    "nRot": rdMolDescriptors.CalcNumRotatableBonds,
-    "nSpiro": rdMolDescriptors.CalcNumSpiroAtoms,
+    "nHeavyAtom": _rdkit_descriptor(Descriptors.HeavyAtomCount),
+    "nHetero": _rdkit_descriptor(rdMolDescriptors.CalcNumHeteroatoms),
+    "nRot": _rdkit_descriptor(rdMolDescriptors.CalcNumRotatableBonds),
+    "nSpiro": _rdkit_descriptor(rdMolDescriptors.CalcNumSpiroAtoms),
     "nX": _halogen_atom_count,
 }
 
@@ -337,7 +417,7 @@ for _name in RING_COUNT_DESCRIPTORS:
 
 for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS and hasattr(Descriptors, _name):
-        _DESCRIPTOR_FUNCTIONS[_name] = getattr(Descriptors, _name)
+        _DESCRIPTOR_FUNCTIONS[_name] = _rdkit_descriptor(getattr(Descriptors, _name))
 
 
 def calc_rdkit_mordred_like_2d(mol: Chem.Mol) -> dict[str, DescriptorValue]:
@@ -347,4 +427,8 @@ def calc_rdkit_mordred_like_2d(mol: Chem.Mol) -> dict[str, DescriptorValue]:
         msg = "mol must be an RDKit Mol, not None"
         raise ValueError(msg)
 
-    return {name: _DESCRIPTOR_FUNCTIONS[name](mol) for name in SUPPORTED_MORDRED_2D_DESCRIPTORS}
+    context = _DescriptorContext(mol)
+    return {
+        name: _DESCRIPTOR_FUNCTIONS[name](context)
+        for name in SUPPORTED_MORDRED_2D_DESCRIPTORS
+    }

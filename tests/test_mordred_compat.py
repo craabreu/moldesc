@@ -9,6 +9,7 @@ import pytest
 from rdkit import Chem
 
 from descriptors import calc_rdkit_mordred_like_2d
+from descriptors import rdkit_mordred_like
 from descriptors.mordred_rdkit_registry import (
     EXACT_NAME_RDKIT_DESCRIPTORS,
     MORDRED_RDKIT_ALIASES,
@@ -73,6 +74,48 @@ def test_supported_descriptors_exist_in_mordred():
 def test_calculator_rejects_none():
     with pytest.raises(ValueError, match="RDKit Mol"):
         calc_rdkit_mordred_like_2d(None)
+
+
+def test_calculator_reuses_expensive_context_values(monkeypatch):
+    counts = {
+        "distance": 0,
+        "adjacency": 0,
+        "rings": 0,
+        "fused": 0,
+        "hydrogen": 0,
+        "kekulized": 0,
+    }
+    context_cls = rdkit_mordred_like._DescriptorContext
+
+    def count_calls(method_name, count_name):
+        original = getattr(context_cls, method_name)
+
+        def counted(self):
+            counts[count_name] += 1
+            return original(self)
+
+        monkeypatch.setattr(context_cls, method_name, counted)
+
+    count_calls("_compute_distance_matrix", "distance")
+    count_calls("_compute_adjacency_matrix", "adjacency")
+    count_calls("_compute_ring_atom_sets", "rings")
+    count_calls("_compute_fused_ring_systems", "fused")
+    count_calls("_compute_implicit_hydrogen_count", "hydrogen")
+    count_calls("_compute_kekulized_mol", "kekulized")
+
+    mol = Chem.MolFromSmiles("c1ccc2ccccc2c1")
+    values = calc_rdkit_mordred_like_2d(mol)
+
+    assert values["WPath"] > 0
+    assert values["nFRing"] == 1
+    assert counts == {
+        "distance": 1,
+        "adjacency": 1,
+        "rings": 1,
+        "fused": 1,
+        "hydrogen": 1,
+        "kekulized": 1,
+    }
 
 
 @pytest.mark.parametrize(("name", "mol"), _load_validation_molecules())
