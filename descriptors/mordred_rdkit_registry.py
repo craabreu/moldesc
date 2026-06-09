@@ -5,8 +5,32 @@ from __future__ import annotations
 MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "MW": "ExactMolWt",
     "AMW": "ExactMolWt / total atom count including hydrogens",
+    "nAtom": "atom count including implicit hydrogens",
+    "nAromAtom": "aromatic atom count",
+    "nH": "hydrogen atom count including implicit hydrogens",
+    "nB": "boron atom count",
+    "nC": "carbon atom count",
+    "nN": "nitrogen atom count",
+    "nO": "oxygen atom count",
+    "nS": "sulfur atom count",
+    "nP": "phosphorus atom count",
+    "nF": "fluorine atom count",
+    "nCl": "chlorine atom count",
+    "nBr": "bromine atom count",
+    "nI": "iodine atom count",
+    "nX": "halogen atom count",
     "nHeavyAtom": "HeavyAtomCount",
     "nHetero": "CalcNumHeteroatoms",
+    "nBonds": "bond count including implicit hydrogen bonds",
+    "nBondsO": "ordinary bond count excluding implicit hydrogen bonds",
+    "nBondsS": "single bond count including implicit hydrogen bonds",
+    "nBondsD": "double bond count",
+    "nBondsT": "triple bond count",
+    "nBondsA": "aromatic bond count",
+    "nBondsM": "multiple bond count",
+    "nBondsKS": "kekulized single bond count including implicit hydrogen bonds",
+    "nBondsKD": "kekulized double bond count",
+    "nAromBond": "aromatic bond count",
     "SLogP": "MolLogP",
     "SMR": "MolMR",
     "TopoPSA(NO)": "CalcTPSA",
@@ -18,6 +42,26 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "nBridgehead": "CalcNumBridgeheadAtoms",
     "FCSP3": "CalcFractionCSP3",
 }
+
+_RING_SIZE_PREFIXES = ("", *(str(i) for i in range(3, 13)), "G12")
+_FUSED_RING_SIZE_PREFIXES = ("", *(str(i) for i in range(4, 13)), "G12")
+_RING_CLASS_PREFIXES = ("", "a", "A")
+
+RING_COUNT_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"n{size}{ring_class}{hetero}Ring"
+    for size in _RING_SIZE_PREFIXES
+    for ring_class in _RING_CLASS_PREFIXES
+    for hetero in ("", "H")
+) + tuple(
+    f"n{size}F{ring_class}{hetero}Ring"
+    for size in _FUSED_RING_SIZE_PREFIXES
+    for ring_class in _RING_CLASS_PREFIXES
+    for hetero in ("", "H")
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit ring info count" for name in RING_COUNT_DESCRIPTORS}
+)
 
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",

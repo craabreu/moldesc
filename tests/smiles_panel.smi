@@ -18,4 +18,24 @@ C1OC1 epoxide
 C1COCCO1 dioxane
 C1CCC2(CC1)CCCC2 spiro_ring
 C1CC2CCC1C2 norbornane
-
+C=C ethene
+C#C ethyne
+CC#N acetonitrile
+ClC(Br)(F)I tetrahalo_methane
+B(O)O boronic_acid
+[NH4+] ammonium
+C1CC1 cyclopropane
+C1CCC1 cyclobutane
+C1CCCC1 cyclopentane
+C1CCCCCC1 cycloheptane
+C1CCCCCCC1 cyclooctane
+C1CCCCCCCCCCC1 cyclododecane
+C1CCCCCCCCCCCC1 cyclotridecane
+c1ccoc1 furan
+c1cc[nH]c1 pyrrole
+c1ncc[nH]1 imidazole
+c1ccc2ccccc2c1 naphthalene
+c1ccc2[nH]ccc2c1 indole
+C1COCCN1 morpholine
+C1CNC1 azetidine
+c1ccc2c(c1)ccc1ccccc12 anthracene
