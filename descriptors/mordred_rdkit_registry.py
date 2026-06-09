@@ -21,6 +21,12 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
 
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
+    "LabuteASA",
+    *(f"PEOE_VSA{i}" for i in range(1, 14)),
+    *(f"SMR_VSA{i}" for i in range(1, 10)),
+    *(f"SlogP_VSA{i}" for i in range(1, 12)),
+    *(f"EState_VSA{i}" for i in range(1, 11)),
+    *(f"VSA_EState{i}" for i in range(1, 10)),
 )
 
 SUPPORTED_MORDRED_2D_DESCRIPTORS: tuple[str, ...] = tuple(

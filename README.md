@@ -13,6 +13,12 @@ in code as `SUPPORTED_MORDRED_2D_DESCRIPTORS`.
 Exact Mordred/RDKit name match:
 
 - `BertzCT`
+- `LabuteASA`
+- `PEOE_VSA1` through `PEOE_VSA13`
+- `SMR_VSA1` through `SMR_VSA9`
+- `SlogP_VSA1` through `SlogP_VSA11`
+- `EState_VSA1` through `EState_VSA10`
+- `VSA_EState1` through `VSA_EState9`
 
 Mordred names implemented via RDKit aliases:
 
@@ -32,7 +38,9 @@ Mordred names implemented via RDKit aliases:
 - `nSpiro` -> `CalcNumSpiroAtoms`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
-match on the validation panel.
+match on the validation panel. RDKit `TPSA` is also not included under that
+name because Mordred exposes the compatible descriptors as `TopoPSA` and
+`TopoPSA(NO)`.
 
 ## Usage
 
@@ -51,4 +59,3 @@ Run:
 ```bash
 python -m pytest -q
 ```
-

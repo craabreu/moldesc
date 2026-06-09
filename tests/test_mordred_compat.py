@@ -10,6 +10,7 @@ from rdkit import Chem
 
 from descriptors import calc_rdkit_mordred_like_2d
 from descriptors.mordred_rdkit_registry import (
+    EXACT_NAME_RDKIT_DESCRIPTORS,
     MORDRED_RDKIT_ALIASES,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
 )
@@ -59,7 +60,7 @@ def test_supported_descriptor_list_is_locked():
 
 
 def test_alias_registry_covers_renamed_descriptors():
-    renamed = set(SUPPORTED_MORDRED_2D_DESCRIPTORS) - {"BertzCT"}
+    renamed = set(SUPPORTED_MORDRED_2D_DESCRIPTORS) - set(EXACT_NAME_RDKIT_DESCRIPTORS)
     assert set(MORDRED_RDKIT_ALIASES) == renamed
 
 

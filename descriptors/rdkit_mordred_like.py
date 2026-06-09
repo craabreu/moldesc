@@ -42,6 +42,10 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "nSpiro": rdMolDescriptors.CalcNumSpiroAtoms,
 }
 
+for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
+    if _name not in _DESCRIPTOR_FUNCTIONS and hasattr(Descriptors, _name):
+        _DESCRIPTOR_FUNCTIONS[_name] = getattr(Descriptors, _name)
+
 
 def calc_rdkit_mordred_like_2d(mol: Chem.Mol) -> dict[str, DescriptorValue]:
     """Return Mordred-compatible 2D descriptors computed using RDKit only."""
