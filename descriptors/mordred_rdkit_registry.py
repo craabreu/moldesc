@@ -43,6 +43,7 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "FCSP3": "CalcFractionCSP3",
     "nAcid": "Mordred AcidicGroupCount SMARTS",
     "nBase": "Mordred BasicGroupCount SMARTS",
+    "Xp-1d": "Chi1",
 }
 
 ESTATE_ATOM_TYPE_DESCRIPTORS: tuple[str, ...] = (

@@ -577,6 +577,7 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "TopoShapeIndex": _topological_shape_index,
     "WPath": _wiener_path_index,
     "WPol": _wiener_polarity_index,
+    "Xp-1d": _rdkit_descriptor(Descriptors.Chi1),
     "Zagreb1": _zagreb_index_1,
     "Zagreb2": _zagreb_index_2,
     "mZagreb1": _modified_zagreb_index_1,

@@ -15,9 +15,9 @@ against the Mordred test oracle on the validation panel.
 
 ## Current State
 
-- Supported Mordred-compatible descriptors: 363.
-- Validation molecules: 60.
-- Compatibility-checked numerical values: 21,780.
+- Supported Mordred-compatible descriptors: 364.
+- Validation molecules: 63.
+- Compatibility-checked numerical values: 22,932.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` is intentionally excluded from the validation panel for now because
@@ -70,11 +70,14 @@ against the Mordred test oracle on the validation panel.
      Only add functional-group descriptors when a Mordred descriptor name has
      a proven RDKit-only implementation and targeted counterexamples.
 
-6. Next: investigate topological index families separately:
-   - `Chi*`
-   - `Kappa*`
-   - `BalabanJ` remains excluded unless a Mordred-equivalent RDKit-only
-     implementation is proven.
+6. Completed: investigate topological index families separately:
+   - Added `Xp-1d` as a validated alias for RDKit `Chi1`.
+   - Added acyclic alkane panel molecules to cover simple Chi path behavior.
+   - `Xp-0d`, `Kier1`, `Kier2`, and `Kier3` remain excluded because Mordred
+     returns missing values for zero-heavy-edge or short-path molecules, and
+     production missing-value behavior is not defined yet.
+   - `BalabanJ` remains excluded because RDKit and Mordred values differ on
+     many validation molecules.
 
 7. Next: investigate autocorrelation families separately:
    - `ATS*`

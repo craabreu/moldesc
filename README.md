@@ -56,14 +56,16 @@ Mordred names implemented with explicit RDKit-only helpers:
   `NaaN`, `NddsN`, `NsSH`, `NssS`, `NsF`, `NsCl`, `NsBr`, and `NsI`
 - Acid/base group counts: `nAcid` and `nBase`, implemented from the Mordred
   SMARTS definitions with RDKit substructure matching
+- Chi topological index: `Xp-1d`, implemented as the validated RDKit `Chi1`
+  alias
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
 `TopoPSA(NO)`. `RotRatio` is not included because Mordred can return missing
 values for zero-heavy-edge molecules and this package does not define a
-production missing-value policy yet. RDKit-native `fr_*`, `Chi*`, `Kappa*`,
-autocorrelation, and `BCUT2D_*` descriptors are intentionally excluded from the
+production missing-value policy yet. Other RDKit-native `Chi*`, `Kappa*`,
+`fr_*`, autocorrelation, and `BCUT2D_*` descriptors are intentionally excluded from the
 Mordred-compatible output unless separately validated. Future functional-group
 expansion should start from Mordred descriptor names and targeted
 counterexamples, not from bulk RDKit `fr_*` helpers.
