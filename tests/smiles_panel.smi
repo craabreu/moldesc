@@ -15,12 +15,14 @@ CCS(=O)(=O)C sulfone
 CS(=O)(=O)O sulfonic_acid
 CP(=O)(O)O phosphonic_acid
 C[N+](C)(C)C tetramethylammonium
+[NH4+] ammonium
 O=[N+]([O-])c1ccccc1 nitrobenzene
 C1CCC2CCCCC2C1 decalin
 C1OC1 epoxide
 C1COCCO1 dioxane
 C1CCC2(CC1)CCCC2 spiro_ring
 C1CC2CCC1C2 norbornane
+C methane
 CC ethane
 CCC propane
 CC(C)C isobutane

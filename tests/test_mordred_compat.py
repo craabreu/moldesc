@@ -19,6 +19,18 @@ from tests.mordred_reference import calc_mordred_2d, mordred_2d_descriptor_names
 
 ABS_TOL = 1e-8
 REL_TOL = 1e-6
+EXPECTED_MORDRED_MISSING_VALUES = {
+    ("ammonium", "PetitjeanIndex"): "nan",
+    ("ammonium", "RotRatio"): "nan",
+    ("ammonium", "TopoShapeIndex"): "nan",
+    ("ammonium", "Xp-0d"): "numeric",
+    ("ammonium", "mZagreb1"): "nan",
+    ("methane", "PetitjeanIndex"): "nan",
+    ("methane", "RotRatio"): "nan",
+    ("methane", "TopoShapeIndex"): "nan",
+    ("methane", "Xp-0d"): "numeric",
+    ("methane", "mZagreb1"): "nan",
+}
 
 
 def _load_validation_molecules():
@@ -128,10 +140,25 @@ def test_rdkit_values_match_mordred_reference(name, mol):
         rdkit_value = rdkit_values[descriptor_name]
         reference_value = reference_values[descriptor_name]
         assert isinstance(rdkit_value, int | float)
-        assert isinstance(reference_value, int | float), (
-            f"{descriptor_name} returned non-numeric Mordred value "
-            f"for {name}: {reference_value!r}"
-        )
+        if not isinstance(reference_value, int | float):
+            expected = EXPECTED_MORDRED_MISSING_VALUES.get((name, descriptor_name))
+            assert expected is not None, (
+                f"{descriptor_name} returned undocumented non-numeric Mordred "
+                f"value for {name}: {reference_value!r}"
+            )
+            if expected == "numeric":
+                assert not math.isnan(float(rdkit_value)), (
+                    f"{descriptor_name} should provide an RDKit numeric value "
+                    f"for {name} when Mordred is missing"
+                )
+            elif expected == "nan":
+                assert math.isnan(float(rdkit_value)), (
+                    f"{descriptor_name} should return NaN for {name} "
+                    f"when both implementations are undefined"
+                )
+            else:
+                raise AssertionError(f"unknown missing-value expectation: {expected}")
+            continue
         assert math.isclose(
             rdkit_value,
             reference_value,

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Expand only the validated Mordred-compatible RDKit-only output. Keep the
+Expand only the validated Mordred-name RDKit-only output. Keep the
 public API unchanged:
 
 ```python
@@ -10,20 +10,21 @@ calc_rdkit_mordred_like_2d(mol) -> dict[str, float | int]
 ```
 
 Every supported descriptor must be RDKit-only in production code, present in
-Mordred, included in `tests/expected_supported.json`, and numerically validated
-against the Mordred test oracle on the validation panel.
+Mordred, included in `tests/expected_supported.json`, and validated against the
+Mordred test oracle on the validation panel. When Mordred returns numeric
+values, RDKit values must match within tolerance. When Mordred returns missing
+values, RDKit may return either a documented numeric improvement or `NaN` for a
+descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-compatible descriptors: 364.
-- Validation molecules: 63.
-- Compatibility-checked numerical values: 22,932.
+- Supported Mordred-name descriptors: 366.
+- Validation molecules: 65.
+- Compatibility-checked panel cases: 23,790.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
-- `[NH4+]` is intentionally excluded from the validation panel for now because
-  Mordred returns missing values for some graph-ratio descriptors on
-  zero-heavy-edge molecules, and production missing-value behavior is not
-  defined yet.
+- `[NH4+]` and methane are included in the validation panel to lock documented
+  behavior when Mordred returns missing values for zero-heavy-edge molecules.
 
 ## Expansion Order
 
@@ -73,13 +74,24 @@ against the Mordred test oracle on the validation panel.
 6. Completed: investigate topological index families separately:
    - Added `Xp-1d` as a validated alias for RDKit `Chi1`.
    - Added acyclic alkane panel molecules to cover simple Chi path behavior.
-   - `Xp-0d`, `Kier1`, `Kier2`, and `Kier3` remain excluded because Mordred
-     returns missing values for zero-heavy-edge or short-path molecules, and
-     production missing-value behavior is not defined yet.
+   - `Kier1`, `Kier2`, and `Kier3` remain excluded because RDKit `Kappa*`
+     values do not match Mordred `Kier*` values when Mordred returns numeric
+     values.
    - `BalabanJ` remains excluded because RDKit and Mordred values differ on
      many validation molecules.
 
-7. Next: investigate autocorrelation families separately:
+7. Completed: define missing-value policy:
+   - Mordred numeric values must match RDKit numeric values within tolerance.
+   - Mordred missing values are allowed only when explicitly documented in the
+     compatibility test expectations.
+   - RDKit numeric values are allowed for documented Mordred-missing cases when
+     the RDKit implementation is meaningful and deterministic.
+   - RDKit `NaN` is allowed for documented cases that are undefined in both
+     implementations.
+   - Added `RotRatio` and `Xp-0d`; reintroduced methane and `[NH4+]` to the
+     validation panel.
+
+8. Next: investigate autocorrelation families separately:
    - `ATS*`
    - `AATS*`
    - `ATSC*`
@@ -89,13 +101,10 @@ against the Mordred test oracle on the validation panel.
    - These are large families, so add them only after a shared implementation
      and panel coverage are in place.
 
-8. Next: investigate BCUT descriptors separately:
+9. Next: investigate BCUT descriptors separately:
    - Mordred `BCUT*` names do not directly match RDKit `BCUT2D_*` names.
    - Treat them as unsupported until a descriptor-by-descriptor numerical
      match is demonstrated.
-
-9. Next: define missing-value policy before adding descriptors such as
-   `RotRatio` or before reintroducing `[NH4+]` to the validation panel.
 
 ## Implementation Rules
 

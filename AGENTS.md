@@ -4,18 +4,18 @@
 
 This repository implements a **RDKit-only subset of Mordred 2D descriptors**.
 
-The objective is to compute as many Mordred-compatible 2D descriptors as possible using RDKit in production code, without importing `mordred` or `mordredcommunity` outside of tests, benchmark scripts, or development utilities.
+The objective is to compute as many Mordred-name 2D descriptors as possible using RDKit in production code, without importing `mordred` or `mordredcommunity` outside of tests, benchmark scripts, or development utilities.
 
-`mordredcommunity` may be used as a reference/oracle in tests to validate numerical equivalence.
+`mordredcommunity` may be used as a reference/oracle in tests to validate numerical equivalence when Mordred returns numeric values and to document allowed RDKit behavior when Mordred returns missing values.
 
 ## Non-negotiable rules
 
 - Production/library code must not import `mordred` or `mordredcommunity`.
 - RDKit is the only chemistry backend allowed in production descriptor calculations.
-- Do not claim a descriptor is Mordred-compatible unless it is covered by tests against `mordredcommunity`.
+- Do not claim a descriptor is supported unless it is covered by tests against `mordredcommunity`.
 - Preserve Mordred descriptor names for compatible descriptors whenever possible.
 - For renamed RDKit equivalents, document the mapping explicitly.
-- Do not silently add approximate descriptor families to the Mordred-compatible output.
+- Do not silently add approximate descriptor families to the Mordred-name output.
 - Approximate or RDKit-native-only descriptors must go into a separate namespace, for example `RDKit_*`.
 - Prefer small, testable changes over broad refactors.
 
@@ -28,9 +28,12 @@ A descriptor is considered supported only if all conditions are true:
 3. It has either:
    - the same name as Mordred, or
    - a documented alias mapping from Mordred name to RDKit implementation.
-4. It numerically matches Mordred-community on the validation molecule panel within accepted tolerances.
-5. It is included in the locked supported-descriptor list.
-6. It has unit-test coverage.
+4. It numerically matches Mordred-community within accepted tolerances whenever Mordred returns numeric values.
+5. Any case where Mordred returns a missing value is explicitly documented in compatibility test expectations as either:
+   - RDKit numeric value accepted because the RDKit implementation is meaningful and deterministic, or
+   - RDKit `NaN` accepted because the descriptor is undefined in both implementations.
+6. It is included in the locked supported-descriptor list.
+7. It has unit-test coverage.
 
 ## Expected package structure
 
@@ -60,14 +63,14 @@ Production descriptor code should expose a function similar to:
 
 ```python
 def calc_rdkit_mordred_like_2d(mol):
-    """Return Mordred-compatible 2D descriptors computed using RDKit only."""
+    """Return Mordred-name 2D descriptors computed using RDKit only."""
 ```
 
 Expected behavior:
 
 - Input is an RDKit `Mol`.
 - Output is a plain `dict[str, float | int]`.
-- Keys are Mordred-compatible descriptor names.
+- Keys are Mordred descriptor names.
 - Values should be numeric whenever possible.
 - Raise a clear `ValueError` for invalid inputs such as `mol is None`.
 - Do not mutate the input molecule unless explicitly documented.
@@ -147,7 +150,8 @@ Tests should verify:
 - Production modules do not import `mordred` or `mordredcommunity`.
 - Every supported descriptor is present in Mordred-community.
 - Every supported descriptor is produced by the RDKit-only calculator.
-- RDKit-only values match Mordred-community values on the validation panel.
+- RDKit-only values match Mordred-community numeric values on the validation panel.
+- Mordred missing values are handled only through explicit test expectations.
 - The supported descriptor list remains stable unless intentionally updated.
 
 Use `math.isclose` or `numpy.isclose` for numerical comparisons. Suggested starting tolerances:
@@ -210,7 +214,7 @@ When trying to add more descriptors:
 4. Add the RDKit implementation.
 5. Run the compatibility tests.
 6. Add passing descriptors to `expected_supported.json`.
-7. Keep failing or approximate descriptors out of the Mordred-compatible output.
+7. Keep failing or approximate descriptors out of the supported Mordred-name output.
 
 Do not add large descriptor families wholesale unless each descriptor has been validated.
 
@@ -224,9 +228,9 @@ Some RDKit descriptor families overlap conceptually with Mordred but may not be 
 - `fr_*` functional group counts
 - `AUTOCORR2D`
 
-These may be useful, but keep them separate unless they pass Mordred compatibility tests.
+These may be useful, but keep them separate unless they pass Mordred-name compatibility tests.
 
-Preferred naming for non-Mordred-compatible RDKit-native descriptors:
+Preferred naming for unsupported RDKit-native descriptors:
 
 ```text
 RDKit_BCUT2D_MWHI
@@ -235,7 +239,7 @@ RDKit_fr_Ar_N
 RDKit_AUTOCORR2D_001
 ```
 
-Do not place these in the Mordred-compatible descriptor dictionary unless validated.
+Do not place these in the supported Mordred-name descriptor dictionary unless validated.
 
 ## Code style
 
@@ -254,11 +258,11 @@ Use a consistent policy for descriptors that cannot be computed.
 Preferred behavior:
 
 - Invalid input molecule: raise `ValueError`.
-- Descriptor calculation failure: either raise a descriptor-specific error or return `float("nan")`, depending on the repository's established policy.
+- Descriptor calculation failure: return a numeric value when RDKit provides a meaningful deterministic value, return `float("nan")` for documented undefined cases, or raise a descriptor-specific error for unsupported/unknown failures.
 - Do not return Mordred error objects from production code.
 - Do not silently coerce non-numeric outputs to zero.
 
-If no policy exists yet, prefer raising during development and only introduce `NaN` behavior deliberately.
+Document every Mordred-missing validation-panel case in the compatibility test expectations.
 
 ## Documentation requirements
 
@@ -268,10 +272,10 @@ The report should distinguish:
 
 1. Exact Mordred/RDKit name matches.
 2. Mordred names implemented via RDKit aliases.
-3. RDKit-native descriptors that are useful but not Mordred-compatible.
+3. RDKit-native descriptors that are useful but not in the supported Mordred-name set.
 4. Unsupported Mordred descriptors.
 
-Avoid statements like "RDKit supports Mordred descriptor X" unless the test suite proves numerical compatibility.
+Avoid statements like "RDKit supports Mordred descriptor X" unless the test suite proves numeric compatibility where Mordred is numeric and documents behavior where Mordred is missing.
 
 ## Dependency policy
 

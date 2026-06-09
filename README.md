@@ -1,14 +1,23 @@
 # descriptors
 
-RDKit-only Mordred-compatible 2D descriptor subset.
+RDKit-only Mordred-name 2D descriptor subset.
 
 Production code in `descriptors/` does not import `mordred` or
 `mordredcommunity`. Mordred is used only by tests as a numerical reference.
 
-## Supported Mordred-Compatible Descriptors
+## Compatibility Contract
 
 The locked supported list is in `tests/expected_supported.json` and is exposed
 in code as `SUPPORTED_MORDRED_2D_DESCRIPTORS`.
+
+Supported descriptors use Mordred names and are validated against Mordred on the
+test panel. When Mordred returns a numeric value, the RDKit-only value must
+match within tolerance. When Mordred returns a missing value, this package may
+return either `NaN` for an undefined descriptor or a documented RDKit numeric
+value when the RDKit implementation is meaningful and deterministic. Returning
+missing where Mordred returns numeric is a compatibility failure.
+
+## Supported Descriptor Groups
 
 Exact Mordred/RDKit name match:
 
@@ -47,6 +56,7 @@ Mordred names implemented with explicit RDKit-only helpers:
   aromatic/aliphatic, hetero, and fused-ring-system variants
 - Graph topology: `Diameter`, `Radius`, `TopoShapeIndex`, `PetitjeanIndex`,
   `WPath`, `WPol`, `Zagreb1`, `Zagreb2`, `mZagreb1`, `mZagreb2`
+- Rotatable bond ratio: `RotRatio`
 - Path counts: `MPC2` through `MPC10`, `TMPC10`, `piPC1` through
   `piPC10`, `TpiPC10`
 - Walk counts: `MWC01` through `MWC10`, `TMWC10`, `SRW02` through
@@ -56,19 +66,17 @@ Mordred names implemented with explicit RDKit-only helpers:
   `NaaN`, `NddsN`, `NsSH`, `NssS`, `NsF`, `NsCl`, `NsBr`, and `NsI`
 - Acid/base group counts: `nAcid` and `nBase`, implemented from the Mordred
   SMARTS definitions with RDKit substructure matching
-- Chi topological index: `Xp-1d`, implemented as the validated RDKit `Chi1`
-  alias
+- Chi topological indices: `Xp-0d` and `Xp-1d`, implemented as validated RDKit
+  `Chi0` and `Chi1` aliases
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
-`TopoPSA(NO)`. `RotRatio` is not included because Mordred can return missing
-values for zero-heavy-edge molecules and this package does not define a
-production missing-value policy yet. Other RDKit-native `Chi*`, `Kappa*`,
-`fr_*`, autocorrelation, and `BCUT2D_*` descriptors are intentionally excluded from the
-Mordred-compatible output unless separately validated. Future functional-group
-expansion should start from Mordred descriptor names and targeted
-counterexamples, not from bulk RDKit `fr_*` helpers.
+`TopoPSA(NO)`. Other RDKit-native `Chi*`, `Kappa*`, `fr_*`, autocorrelation,
+and `BCUT2D_*` descriptors are intentionally excluded from the Mordred-name
+output unless separately validated. Future functional-group expansion should
+start from Mordred descriptor names and targeted counterexamples, not from bulk
+RDKit `fr_*` helpers.
 
 ## Usage
 

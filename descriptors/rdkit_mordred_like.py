@@ -297,11 +297,15 @@ def _radius(ctx: _DescriptorContext) -> int:
 
 def _topological_shape_index(ctx: _DescriptorContext) -> float:
     radius = _radius(ctx)
+    if radius == 0:
+        return float("nan")
     return (_diameter(ctx) - radius) / radius
 
 
 def _petitjean_index(ctx: _DescriptorContext) -> float:
     diameter = _diameter(ctx)
+    if diameter == 0:
+        return float("nan")
     return (_diameter(ctx) - _radius(ctx)) / diameter
 
 
@@ -328,6 +332,8 @@ def _zagreb_index_2(ctx: _DescriptorContext) -> float:
 
 
 def _modified_zagreb_index_1(ctx: _DescriptorContext) -> float:
+    if any(valence == 0 for valence in ctx.adjacency_valences):
+        return float("nan")
     return sum(valence**-2 for valence in ctx.adjacency_valences)
 
 
@@ -346,6 +352,13 @@ def _hydrogen_atom_count(ctx: _DescriptorContext) -> int:
         1 if atom.GetAtomicNum() == 1 else atom.GetTotalNumHs()
         for atom in ctx.atoms
     )
+
+
+def _rotatable_bond_ratio(ctx: _DescriptorContext) -> float:
+    bond_count = len(ctx.bonds)
+    if bond_count == 0:
+        return float("nan")
+    return rdMolDescriptors.CalcNumRotatableBonds(ctx.mol) / bond_count
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -567,6 +580,7 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "MW": lambda ctx: ctx.exact_molecular_weight,
     "PetitjeanIndex": _petitjean_index,
     "Radius": _radius,
+    "RotRatio": _rotatable_bond_ratio,
     "SMR": _rdkit_descriptor(Crippen.MolMR),
     "SLogP": _rdkit_descriptor(Crippen.MolLogP),
     "TopoPSA": lambda ctx: rdMolDescriptors.CalcTPSA(
@@ -577,6 +591,7 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "TopoShapeIndex": _topological_shape_index,
     "WPath": _wiener_path_index,
     "WPol": _wiener_polarity_index,
+    "Xp-0d": _rdkit_descriptor(Descriptors.Chi0),
     "Xp-1d": _rdkit_descriptor(Descriptors.Chi1),
     "Zagreb1": _zagreb_index_1,
     "Zagreb2": _zagreb_index_2,

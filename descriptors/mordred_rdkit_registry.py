@@ -43,6 +43,8 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "FCSP3": "CalcFractionCSP3",
     "nAcid": "Mordred AcidicGroupCount SMARTS",
     "nBase": "Mordred BasicGroupCount SMARTS",
+    "RotRatio": "CalcNumRotatableBonds / heavy bond count",
+    "Xp-0d": "Chi0",
     "Xp-1d": "Chi1",
 }
 
