@@ -15,9 +15,9 @@ against the Mordred test oracle on the validation panel.
 
 ## Current State
 
-- Supported Mordred-compatible descriptors: 291.
+- Supported Mordred-compatible descriptors: 361.
 - Validation molecules: 52.
-- Compatibility-checked numerical values: 15,132.
+- Compatibility-checked numerical values: 18,772.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` is intentionally excluded from the validation panel for now because
@@ -51,8 +51,43 @@ against the Mordred test oracle on the validation panel.
    - Added only aliases that passed targeted counterexamples: `NaaNH`, `NaaO`,
      `NddsN`, `NsNH2`, `NsSH`, `NssO`, `NssS`, `NtN`, and `NtsC`.
 
-4. Next: treat `Chi*`, `Kappa*`, `fr_*`, `AUTOCORR2D`, and `BCUT2D_*` as separate
-   investigations. Do not add them in bulk to the Mordred-compatible output.
+4. Completed: expand Mordred EState atom-type count descriptors:
+   - Added the full `N...` EState atom-type family using RDKit
+     `AtomTypes.TypeAtoms`.
+   - This replaces the earlier small hand-picked functional aliases with a
+     general atom-type implementation.
+   - All 79 `N...` descriptors match Mordred on the validation panel.
+
+5. Next: investigate `fr_*`-style functional group counts as narrow,
+   counterexample-driven batches:
+   - Prefer exact Mordred atom-type descriptors when a `fr_*` helper only
+     happens to overlap on a simple molecule.
+   - Add panel molecules for each accepted functional group.
+   - Keep failures and near misses documented outside the supported list.
+
+6. Next: investigate topological index families separately:
+   - `Chi*`
+   - `Kappa*`
+   - `BalabanJ` remains excluded unless a Mordred-equivalent RDKit-only
+     implementation is proven.
+
+7. Next: investigate autocorrelation families separately:
+   - `ATS*`
+   - `AATS*`
+   - `ATSC*`
+   - `AATSC*`
+   - `MATS*`
+   - `GATS*`
+   - These are large families, so add them only after a shared implementation
+     and panel coverage are in place.
+
+8. Next: investigate BCUT descriptors separately:
+   - Mordred `BCUT*` names do not directly match RDKit `BCUT2D_*` names.
+   - Treat them as unsupported until a descriptor-by-descriptor numerical
+     match is demonstrated.
+
+9. Next: define missing-value policy before adding descriptors such as
+   `RotRatio` or before reintroducing `[NH4+]` to the validation panel.
 
 ## Implementation Rules
 

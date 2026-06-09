@@ -10,8 +10,10 @@ import re
 from rdkit import Chem
 from rdkit.Chem import rdchem
 from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
+from rdkit.Chem.EState import AtomTypes
 
 from .mordred_rdkit_registry import (
+    ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
@@ -249,6 +251,16 @@ class _DescriptorContext:
             if atom.GetAtomicNum() in _HALOGEN_ATOMIC_NUMBERS
         )
 
+    @cached_property
+    def estate_atom_type_counts(self) -> dict[str, int]:
+        counts = {name: 0 for name in ESTATE_ATOM_TYPE_DESCRIPTORS}
+        for atom_types in AtomTypes.TypeAtoms(self.mol):
+            for atom_type in atom_types:
+                name = f"N{atom_type}"
+                if name in counts:
+                    counts[name] += 1
+        return counts
+
 
 def _average_molecular_weight(ctx: _DescriptorContext) -> float:
     atom_count = ctx.total_atom_count_including_hydrogen
@@ -332,6 +344,10 @@ def _halogen_atom_count(ctx: _DescriptorContext) -> int:
 
 def _aromatic_atom_count(ctx: _DescriptorContext) -> int:
     return ctx.aromatic_atom_count
+
+
+def _estate_atom_type_count(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.estate_atom_type_counts[name]
 
 
 def _is_single_bond(bond: rdchem.Bond) -> bool:
@@ -526,15 +542,6 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "Diameter": _diameter,
     "FCSP3": _rdkit_descriptor(rdMolDescriptors.CalcFractionCSP3),
     "MW": lambda ctx: ctx.exact_molecular_weight,
-    "NaaNH": _rdkit_descriptor(Descriptors.fr_Ar_NH),
-    "NaaO": _rdkit_descriptor(Descriptors.fr_furan),
-    "NddsN": _rdkit_descriptor(Descriptors.fr_nitro),
-    "NsNH2": _rdkit_descriptor(Descriptors.fr_NH2),
-    "NsSH": _rdkit_descriptor(Descriptors.fr_SH),
-    "NssO": _rdkit_descriptor(Descriptors.fr_ether),
-    "NssS": _rdkit_descriptor(Descriptors.fr_sulfide),
-    "NtN": _rdkit_descriptor(Descriptors.fr_nitrile),
-    "NtsC": _rdkit_descriptor(Descriptors.fr_nitrile),
     "PetitjeanIndex": _petitjean_index,
     "Radius": _radius,
     "SMR": _rdkit_descriptor(Crippen.MolMR),
@@ -584,6 +591,9 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
 
 for _name, _symbol in _ATOM_SYMBOLS_BY_DESCRIPTOR.items():
     _DESCRIPTOR_FUNCTIONS[_name] = _atom_count_by_symbol(_symbol)
+
+for _name in ESTATE_ATOM_TYPE_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _estate_atom_type_count(_name)
 
 for _name in RING_COUNT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _ring_count_descriptor(_name)

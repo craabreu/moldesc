@@ -51,16 +51,17 @@ Mordred names implemented with explicit RDKit-only helpers:
   `piPC10`, `TpiPC10`
 - Walk counts: `MWC01` through `MWC10`, `TMWC10`, `SRW02` through
   `SRW10`, `TSRW10`
-- Validated atom-type aliases: `NaaNH`, `NaaO`, `NddsN`, `NsNH2`,
-  `NsSH`, `NssO`, `NssS`, `NtN`, `NtsC`
+- EState atom-type counts: the full Mordred `N...` family, including common
+  organic types such as `NsCH3`, `NaaCH`, `NssssC`, `NsOH`, `NdO`, `NssO`,
+  `NaaN`, `NddsN`, `NsSH`, `NssS`, `NsF`, `NsCl`, `NsBr`, and `NsI`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
 `TopoPSA(NO)`. `RotRatio` is not included because Mordred can return missing
 values for zero-heavy-edge molecules and this package does not define a
-production missing-value policy yet. RDKit-native `Chi*`, `Kappa*`, `fr_*`,
-`AUTOCORR2D`, and `BCUT2D_*` descriptors are intentionally excluded from the
+production missing-value policy yet. RDKit-native `fr_*`, `Chi*`, `Kappa*`,
+autocorrelation, and `BCUT2D_*` descriptors are intentionally excluded from the
 Mordred-compatible output unless separately validated.
 
 ## Usage
