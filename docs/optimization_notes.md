@@ -116,6 +116,27 @@ enumeration and the branch showed no measurable benefit while adding complexity.
 Recorded here so it is not re-attempted without a workload that actually
 warrants it.
 
+A later pass confirmed this group is now **at its floor**, so no further change
+was made. Measured split of the ~0.88s group: ~0.46s is the RDKit C++
+enumeration itself (orders 1–10 are ten separate `FindAllPathsOfLengthN` calls
+per molecule — there is no range-returning API to fold them into one), leaving
+only ~0.42s of Python post-processing. Two attempts to cut that lost:
+
+- **Vectorize per order.** Within one order every path has exactly `order`
+  bonds, so the paths form a rectangular `(P, order)` matrix and
+  `np.array(paths)` builds it in C. The whole order then reduces to fancy-indexed
+  endpoint lookup + per-row sort for the distinct-atom count and a `prod` for the
+  π-weight. It is **slower** (1.08s vs 0.88s): path sets per (molecule, order)
+  are small, so numpy's fixed per-call overhead dominates. A clear case of the
+  "batch only when per-item work is uniform *and large*" caveat.
+- **Tighter Python loop.** Replacing the two `set.add` calls with one
+  `set.update(pair)` per bond, and the inline π-multiply with `math.prod`, both
+  regressed slightly. The existing two-`add`-plus-inline-multiply loop is already
+  the fastest pure-Python form.
+
+Recorded so the vectorization is not re-attempted on this (small-molecule)
+workload.
+
 ### Chi connectivity: classify subgraphs by degree, not by DFS
 
 The Kier-Hall chi family (`Xp-*`/`Xc-*`/`Xch-*`/`Xpc-*`) classifies every
