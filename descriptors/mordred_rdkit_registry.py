@@ -266,6 +266,12 @@ CONSTITUTIONAL_DESCRIPTORS: tuple[str, ...] = tuple(
     for prop in _CONSTITUTIONAL_PROPERTIES
 )
 
+TOPOLOGICAL_CHARGE_DESCRIPTORS: tuple[str, ...] = (
+    *(f"GGI{k}" for k in range(1, 11)),
+    *(f"JGI{k}" for k in range(1, 11)),
+    "JGT10",
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
@@ -301,6 +307,12 @@ MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit carbon-normalized constitutional sum/mean calculation"
         for name in CONSTITUTIONAL_DESCRIPTORS
+    }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit charge-term matrix topological charge calculation"
+        for name in TOPOLOGICAL_CHARGE_DESCRIPTORS
     }
 )
 

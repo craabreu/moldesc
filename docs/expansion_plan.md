@@ -18,7 +18,7 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1021.
+- Supported Mordred-name descriptors: 1042.
 - Validation molecules: 65.
 - Compatibility-checked panel cases: 63,895.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
@@ -190,12 +190,17 @@ descriptor that is undefined in both implementations.
     tables already loaded for autocorrelation and BCUT. Zero mismatches on the
     full validation panel.
 
-16. Next: add topological charge descriptors:
+16. Completed: add topological charge descriptors:
 
-    Candidate descriptors are `GGI1` through `GGI10`, `JGI1` through `JGI10`,
-    and `JGT10`. These are matrix-based and RDKit-only, but should be added
-    after a focused implementation of the charge-term matrix and distance-lag
-    aggregation.
+    Added `GGI1`–`GGI10` (raw sum), `JGI1`–`JGI10` (mean per distance), and
+    `JGT10` (global sum of JGI1–JGI10) — 21 descriptors.
+
+    Algorithm: build the antisymmetric charge-term matrix `CT = (A @ D⁻²) − (A @ D⁻²)ᵀ`
+    from the heavy-atom adjacency and distance matrices; for each lag k extract
+    lower-triangle pairs at distance k and sum `|CT_ij|` (GGI) or `|CT_ij| /
+    count_k` (JGI). When no atom pairs exist at distance k the result is 0 (empty
+    sum), not NaN — matching Mordred's `np.abs([]).sum() == 0` behavior. Zero
+    mismatches on the full validation panel.
 
 17. Next: expand the Mordred connectivity-index (Xp-*/Xc-*/Xch-*/Xpc-*) family:
 

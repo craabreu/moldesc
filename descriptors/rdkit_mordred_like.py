@@ -23,6 +23,7 @@ from .mordred_rdkit_registry import (
     PATH_COUNT_DESCRIPTORS,
     CONSTITUTIONAL_DESCRIPTORS,
     PHYSICAL_PROPERTY_DESCRIPTORS,
+    TOPOLOGICAL_CHARGE_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
     SMALL_GRAPH_FORMULA_DESCRIPTORS,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
@@ -583,6 +584,35 @@ class _DescriptorContext:
         return results
 
     @cached_property
+    def topological_charge_values(self) -> dict[str, float]:
+        """GGI/JGI/JGT topological charge descriptors (heavy-atom mol)."""
+        D = self.distance_matrix.astype(float)
+        A = self.adjacency_matrix.astype(float)
+        n = len(self.atoms)
+
+        D2 = D.copy()
+        D2[D2 != 0] **= -2
+        np.fill_diagonal(D2, 0)
+        M = A @ D2
+        CT = M - M.T  # antisymmetric charge-term matrix
+
+        D_lower = D * np.tri(n)
+        D_lower[D_lower == 0] = np.inf
+
+        results: dict[str, float] = {}
+        jgt = 0.0
+        for k in range(1, 11):
+            f = D_lower == k
+            ct_k = CT[f]
+            count_k = len(ct_k)
+            results[f"GGI{k}"] = float(np.abs(ct_k).sum())
+            jgi_k = float((np.abs(ct_k) / count_k).sum()) if count_k > 0 else 0.0
+            results[f"JGI{k}"] = jgi_k
+            jgt += jgi_k
+        results["JGT10"] = jgt
+        return results
+
+    @cached_property
     def exact_molecular_weight(self) -> float:
         return Descriptors.ExactMolWt(self.mol)
 
@@ -891,6 +921,10 @@ def _bcut_descriptor(name: str) -> DescriptorFunction:
 
 def _constitutional_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.constitutional_values[name]
+
+
+def _topological_charge_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.topological_charge_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -1223,6 +1257,9 @@ for _name in BCUT_DESCRIPTORS:
 
 for _name in CONSTITUTIONAL_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _constitutional_descriptor(_name)
+
+for _name in TOPOLOGICAL_CHARGE_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _topological_charge_descriptor(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

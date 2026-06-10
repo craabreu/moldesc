@@ -91,6 +91,9 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Constitutional property sums and means: `SZ`/`MZ`, `Sm`/`Mm`, `Sv`/`Mv`,
   `Sse`/`Mse`, `Spe`/`Mpe`, `Sare`/`Mare`, `Sp`/`Mp`, `Si`/`Mi` — each
   computed as `Σ(p_i/p_carbon)` over all atoms including explicit hydrogens
+- Topological charge descriptors: `GGI1`–`GGI10` (raw), `JGI1`–`JGI10`
+  (mean), and `JGT10` (global), computed from the antisymmetric charge-term
+  matrix `CT = A·D⁻² − (A·D⁻²)ᵀ`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
