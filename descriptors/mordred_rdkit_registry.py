@@ -253,6 +253,19 @@ PHYSICAL_PROPERTY_DESCRIPTORS: tuple[str, ...] = (
     "bpol",
 )
 
+# Constitutional property sums (S*) and means (M*), normalized to carbon.
+# Formula: S_p = Σ(p_i / p_C) over all atoms including explicit H;
+# M_p = S_p / total atom count (including H).
+_CONSTITUTIONAL_PROPERTIES: tuple[str, ...] = (
+    "Z", "m", "v", "se", "pe", "are", "p", "i",
+)
+
+CONSTITUTIONAL_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"{prefix}{prop}"
+    for prefix in ("S", "M")
+    for prop in _CONSTITUTIONAL_PROPERTIES
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
@@ -282,6 +295,12 @@ MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit explicit-hydrogen physical property calculation"
         for name in PHYSICAL_PROPERTY_DESCRIPTORS
+    }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit carbon-normalized constitutional sum/mean calculation"
+        for name in CONSTITUTIONAL_DESCRIPTORS
     }
 )
 

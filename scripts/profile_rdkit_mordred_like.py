@@ -17,6 +17,7 @@ from descriptors import calc_rdkit_mordred_like_2d, rdkit_mordred_like
 from descriptors.mordred_rdkit_registry import (
     AUTOCORRELATION_DESCRIPTORS,
     BCUT_DESCRIPTORS,
+    CONSTITUTIONAL_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     EXACT_NAME_RDKIT_DESCRIPTORS,
     GRAPH_TOPOLOGY_DESCRIPTORS,
@@ -44,6 +45,7 @@ _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "walk_counts": WALK_COUNT_DESCRIPTORS,
     "autocorrelation": AUTOCORRELATION_DESCRIPTORS,
     "bcut": BCUT_DESCRIPTORS,
+    "constitutional": CONSTITUTIONAL_DESCRIPTORS,
     "small_graph_formula": SMALL_GRAPH_FORMULA_DESCRIPTORS,
     "physical_properties": PHYSICAL_PROPERTY_DESCRIPTORS,
 }

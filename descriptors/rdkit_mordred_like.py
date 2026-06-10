@@ -21,6 +21,7 @@ from .mordred_rdkit_registry import (
     BCUT_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
+    CONSTITUTIONAL_DESCRIPTORS,
     PHYSICAL_PROPERTY_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
     SMALL_GRAPH_FORMULA_DESCRIPTORS,
@@ -557,6 +558,31 @@ class _DescriptorContext:
         return results
 
     @cached_property
+    def constitutional_values(self) -> dict[str, float]:
+        """Constitutional sums S_p = Σ(p_i/p_C) and means M_p = S_p/A over explicit-H atoms."""
+        atoms = list(self.explicit_hydrogen_mol.GetAtoms())
+        n = len(atoms)
+        carbon = 6
+        prop_funs: list[tuple[str, dict[int, float]]] = [
+            ("Z",   {z: float(z) for z in range(1, 119)}),
+            ("m",   _MASS_BY_ATOMIC_NUM),
+            ("v",   _VDW_VOLUME_BY_ATOMIC_NUM),
+            ("se",  _SANDERSON_EN_BY_ATOMIC_NUM),
+            ("pe",  _PAULING_EN_BY_ATOMIC_NUM),
+            ("are", _ALLRED_ROCOW_EN_BY_ATOMIC_NUM),
+            ("p",   _POLARIZABILITY_94_BY_ATOMIC_NUM),
+            ("i",   _IONIZATION_POTENTIAL_BY_ATOMIC_NUM),
+        ]
+        results: dict[str, float] = {}
+        for suffix, table in prop_funs:
+            carbon_val = table[carbon]
+            vals = [table.get(a.GetAtomicNum(), float("nan")) / carbon_val for a in atoms]
+            s = sum(vals) if not any(math.isnan(v) for v in vals) else float("nan")
+            results[f"S{suffix}"] = s
+            results[f"M{suffix}"] = s / n if not math.isnan(s) else float("nan")
+        return results
+
+    @cached_property
     def exact_molecular_weight(self) -> float:
         return Descriptors.ExactMolWt(self.mol)
 
@@ -861,6 +887,10 @@ def _autocorrelation_descriptor(name: str) -> DescriptorFunction:
 
 def _bcut_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.bcut_values[name]
+
+
+def _constitutional_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.constitutional_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -1190,6 +1220,9 @@ for _name in AUTOCORRELATION_DESCRIPTORS:
 
 for _name in BCUT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _bcut_descriptor(_name)
+
+for _name in CONSTITUTIONAL_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _constitutional_descriptor(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

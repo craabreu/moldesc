@@ -18,7 +18,7 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1005.
+- Supported Mordred-name descriptors: 1021.
 - Validation molecules: 65.
 - Compatibility-checked panel cases: 63,895.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
@@ -178,12 +178,17 @@ descriptor that is undefined in both implementations.
     `Vabc` returns documented `NaN` for atoms outside its Bondi radius table,
     such as iodine in the validation panel.
 
-15. Next: add constitutional property sums and means:
+15. Completed: add constitutional property sums and means:
 
-    Candidate descriptors include `SZ`, `MZ`, `Sm`, `Mm`, `Sv`, `Mv`, `Sse`,
-    `Mse`, and related `S*`/`M*` property variants. This should reuse the same
-    property-vector infrastructure needed for non-`Z` autocorrelation and BCUT
-    expansion.
+    Added `SZ`, `MZ`, `Sm`, `Mm`, `Sv`, `Mv`, `Sse`, `Mse`, `Spe`, `Mpe`,
+    `Sare`, `Mare`, `Sp`, `Mp`, `Si`, `Mi` — 16 descriptors covering all 8
+    table-property variants in both sum and mean form.
+
+    Formula: `S_p = Σ(p_i / p_C)` summed over all atoms including explicit
+    hydrogens, normalized to the carbon reference value; `M_p = S_p / A` where
+    A is total atom count including H. Reuses the same per-element property
+    tables already loaded for autocorrelation and BCUT. Zero mismatches on the
+    full validation panel.
 
 16. Next: add topological charge descriptors:
 

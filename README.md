@@ -88,6 +88,9 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
   `fMF`
 - Physical-property table descriptors: `apol`, `bpol`, `VMcGowan`, and `Vabc`
+- Constitutional property sums and means: `SZ`/`MZ`, `Sm`/`Mm`, `Sv`/`Mv`,
+  `Sse`/`Mse`, `Spe`/`Mpe`, `Sare`/`Mare`, `Sp`/`Mp`, `Si`/`Mi` — each
+  computed as `Σ(p_i/p_carbon)` over all atoms including explicit hydrogens
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
