@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from descriptors import calc_rdkit_mordred_like_2d, rdkit_mordred_like
 from descriptors.mordred_rdkit_registry import (
+    ATOMIC_ID_DESCRIPTORS,
     AUTOCORRELATION_DESCRIPTORS,
     BCUT_DESCRIPTORS,
     CHI_DESCRIPTORS,
@@ -64,6 +65,7 @@ _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "spectral": SPECTRAL_DESCRIPTORS,
     "small_graph_formula": SMALL_GRAPH_FORMULA_DESCRIPTORS,
     "physical_properties": PHYSICAL_PROPERTY_DESCRIPTORS,
+    "atomic_id": ATOMIC_ID_DESCRIPTORS,
 }
 
 _GROUPED_DESCRIPTOR_NAMES = {

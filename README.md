@@ -140,6 +140,9 @@ Mordred names implemented with explicit RDKit-only helpers:
   Gasteiger charge, 0.0 when no charges of that sign), `VAdjMat`
   (`1 + log2(m)` over heavy–heavy bonds, NaN when m=0), and `DetourIndex`
   (`int(0.5·Dt.sum())`, NaN for disconnected molecules)
+- Molecular atomic-ID descriptors: `MID`, `MID_h`, `MID_C`, `MID_N`, `MID_O`,
+  `MID_X` and the averaged `AMID*` variants, computed by Mordred's weighted
+  recursive heavy-atom graph traversal; disconnected molecules return NaN
 - Drug-likeness filters: `Lipinski` (rule of five), `GhoseFilter` (Ghose
   drug-likeness), and `FilterItLogS` (Filter-it aqueous solubility model with
   Mordred SMARTS coefficients)

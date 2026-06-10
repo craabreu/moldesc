@@ -451,6 +451,15 @@ MORDRED_RDKIT_ALIASES.update({
     "DetourIndex":  "RDKit detour index",
 })
 
+ATOMIC_ID_DESCRIPTORS: tuple[str, ...] = (
+    "MID", "MID_h", "MID_C", "MID_N", "MID_O", "MID_X",
+    "AMID", "AMID_h", "AMID_C", "AMID_N", "AMID_O", "AMID_X",
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit molecular atomic-ID traversal" for name in ATOMIC_ID_DESCRIPTORS}
+)
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",

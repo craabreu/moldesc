@@ -18,10 +18,15 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1597.
+- Supported Mordred-name descriptors: 1609.
 - Validation molecules: 65.
+- Current baseline: `PYTHONPATH=/Users/charlles/MIT/descriptors conda run --no-capture-output -n open3d pytest -q`
+  passes with 77 tests.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
+- Remaining unsupported Mordred 2D descriptors are the four descriptors that are
+  intentionally excluded for incompatibility: `BalabanJ`, `Kier1`, `Kier2`, and
+  `Kier3`.
 - `[NH4+]` and methane are included in the validation panel to lock documented
   behavior when Mordred returns missing values for zero-heavy-edge molecules.
 - The public entry point accepts an optional `names=` subset; because each
@@ -401,14 +406,35 @@ descriptor that is undefined in both implementations.
       `detour_matrix` is now a shared `@cached_property` used by both
       `spectral_values` and `DetourIndex`.
 
-    Deferred (16 remaining): AMID/MID (12) — recursive atomic-ID DFS traversal;
-    BalabanJ, Kier1/2/3 — permanently incompatible.
+23. Completed: implement molecular atomic-ID descriptors (12 new, 1597 → 1609):
+
+    Added `MID`, `MID_h`, `MID_C`, `MID_N`, `MID_O`, `MID_X`, and their averaged
+    `AMID*` variants. Zero mismatches on the 65-molecule panel.
+
+    Algorithm:
+    - Build the heavy-atom RDKit graph with edge weight
+      `degree(u) * degree(v)`, matching Mordred's `explicit_hydrogens=False`
+      molecular-ID dependency.
+    - For each atom, recursively enumerate self-avoiding walks, accumulating
+      `1 / sqrt(product(edge_weights))` and stopping recursion when the product
+      reaches `int(1 / eps**2)` with `eps=1e-10`.
+    - Atomic ID is `1 + accumulated_id / 2`.
+    - `MID` variants sum atomic IDs over all atoms, hetero atoms (`h`), carbon,
+      nitrogen, oxygen, or Mordred halogens (`X`).
+    - `AMID` variants divide those sums by the total heavy-atom count.
+    - Disconnected molecules return NaN for all 12 descriptors, matching
+      Mordred's `require_connected=True` policy.
 
 ## Remaining Families (future expansion)
 
-16 Mordred 2D descriptors will remain unsupported after step 22
-(`tests/unsupported_mordred.json`). All are 2D-computable.
-Continue the validated-increment pattern.
+Only four Mordred 2D descriptors remain unsupported in
+`tests/unsupported_mordred.json`. They should stay unsupported unless a new
+clean-room implementation is proven compatible against Mordred numeric values:
+
+- `BalabanJ`
+- `Kier1`
+- `Kier2`
+- `Kier3`
 
 ## Implementation Rules
 
@@ -429,5 +455,5 @@ Continue the validated-increment pattern.
 - Run:
 
 ```bash
-python -m pytest -q
+PYTHONPATH=/Users/charlles/MIT/descriptors conda run --no-capture-output -n open3d pytest -q
 ```

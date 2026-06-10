@@ -18,6 +18,7 @@ from rdkit.Chem.EState import AtomTypes
 from rdkit.Chem.EState.EState import EStateIndices
 
 from .mordred_rdkit_registry import (
+    ATOMIC_ID_DESCRIPTORS,
     AUTOCORRELATION_DESCRIPTORS,
     BCUT_DESCRIPTORS,
     CARBON_TYPES_DESCRIPTORS,
@@ -58,6 +59,7 @@ _AUTOCORRELATION_PATTERN = re.compile(
     r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)(are|se|pe|dv|Z|m|v|p|i|d|s|c)$"
 )
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
+_MORDRED_HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53, 85, 117}
 _ACID_GROUP_SMARTS = (
     "[O;H1]-[C,S,P]=O",
     "[*;-;!$(*~[*;+])]",
@@ -1168,6 +1170,53 @@ class _DescriptorContext:
         rpcg = float(pos[np.argmax(np.abs(pos))] / pos.sum()) if len(pos) > 0 else 0.0
         return {"RNCG": rncg, "RPCG": rpcg}
 
+    @cached_property
+    def atomic_id_values(self) -> dict[str, float]:
+        """Molecular ID descriptors (MID/AMID family)."""
+        nan = float("nan")
+        n = len(self.atoms)
+        if n == 0 or len(Chem.GetMolFrags(self.mol)) > 1:
+            return {name: nan for name in ATOMIC_ID_DESCRIPTORS}
+
+        atomic_ids = _atomic_id_per_atom(self)
+        sums = {
+            "MID": sum(atomic_ids),
+            "MID_h": sum(
+                aid
+                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
+                if atom.GetAtomicNum() not in {1, 6}
+            ),
+            "MID_C": sum(
+                aid
+                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
+                if atom.GetAtomicNum() == 6
+            ),
+            "MID_N": sum(
+                aid
+                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
+                if atom.GetAtomicNum() == 7
+            ),
+            "MID_O": sum(
+                aid
+                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
+                if atom.GetAtomicNum() == 8
+            ),
+            "MID_X": sum(
+                aid
+                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
+                if atom.GetAtomicNum() in _MORDRED_HALOGEN_ATOMIC_NUMBERS
+            ),
+        }
+        return {
+            **sums,
+            "AMID": sums["MID"] / n,
+            "AMID_h": sums["MID_h"] / n,
+            "AMID_C": sums["MID_C"] / n,
+            "AMID_N": sums["MID_N"] / n,
+            "AMID_O": sums["MID_O"] / n,
+            "AMID_X": sums["MID_X"] / n,
+        }
+
 
 def _average_molecular_weight(ctx: _DescriptorContext) -> float:
     atom_count = ctx.total_atom_count_including_hydrogen
@@ -1238,6 +1287,38 @@ def _modified_zagreb_index_2(ctx: _DescriptorContext) -> float:
             for bond in ctx.bonds
         )
     )
+
+
+def _atomic_id_per_atom(ctx: _DescriptorContext) -> list[float]:
+    adjacency: list[list[tuple[int, int]]] = [[] for _ in ctx.atoms]
+    for bond in ctx.bonds:
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        weight = ctx.atoms[begin].GetDegree() * ctx.atoms[end].GetDegree()
+        adjacency[begin].append((end, weight))
+        adjacency[end].append((begin, weight))
+
+    limit = int(1.0 / (1e-10 ** 2))
+
+    def search(atom_idx: int, current_weight: int, visited: set[int]) -> float:
+        value = 0.0
+        for next_atom, edge_weight in adjacency[atom_idx]:
+            if next_atom in visited:
+                continue
+
+            weight = current_weight * edge_weight
+            visited.add(next_atom)
+            value += 1.0 / math.sqrt(weight)
+            if weight < limit:
+                value += search(next_atom, weight, visited)
+            visited.remove(next_atom)
+
+        return value
+
+    return [
+        1.0 + search(atom.GetIdx(), 1, {atom.GetIdx()}) / 2.0
+        for atom in ctx.atoms
+    ]
 
 
 def _shortest_path(
@@ -2323,6 +2404,9 @@ def _carbon_types_descriptor(name: str) -> DescriptorFunction:
 
 for _name in (*CARBON_TYPES_DESCRIPTORS, "HybRatio"):
     _DESCRIPTOR_FUNCTIONS[_name] = _carbon_types_descriptor(_name)
+
+for _name in ATOMIC_ID_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = (lambda n: lambda ctx: ctx.atomic_id_values[n])(_name)
 
 for _name in ("RNCG", "RPCG"):
     _DESCRIPTOR_FUNCTIONS[_name] = (lambda n: lambda ctx: ctx.rncg_rpcg_values[n])(_name)
