@@ -125,9 +125,12 @@ descriptor that is undefined in both implementations.
 
 11. In progress: implement non-`Z` autocorrelation property vectors:
 
-    - Generalized the atomic-number autocorrelation machinery into a shared
-      property-vector helper (`_autocorrelation_property_values`) so any per-atom
-      property can reuse the validated graph-distance/centering/averaging code.
+    - Generalized the atomic-number autocorrelation machinery into a single
+      vectorized `autocorrelation_values` that stacks every property vector and
+      computes all properties together per lag. The shared per-lag graph-distance
+      work (adjacency-at-distance matrix and its quadratic forms) and the Geary
+      numerator are done once per lag in numpy instead of once per property in
+      Python, so adding more properties scales far better.
     - Completed the mass (`m`) family: `ATS*m`, `ATSC*m`, `AATS*m`, `AATSC*m`
       (lags 0-8) and `MATS*m`, `GATS*m` (lags 1-8). Mass uses Mordred's standard
       atomic weights, replicated in `_MASS_BY_ATOMIC_NUM` because RDKit's

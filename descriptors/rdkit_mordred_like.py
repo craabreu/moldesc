@@ -40,11 +40,8 @@ class _RingMetadata(NamedTuple):
 _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
 _PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
 _WALK_COUNT_PATTERN = re.compile(r"^(T)?(?:(M)WC|(SR)W)(\d+)$")
-_AUTOCORRELATION_Z_PATTERN = re.compile(
-    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)Z$"
-)
-_AUTOCORRELATION_M_PATTERN = re.compile(
-    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)m$"
+_AUTOCORRELATION_PATTERN = re.compile(
+    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)(Z|m)$"
 )
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
 _ACID_GROUP_SMARTS = (
@@ -688,46 +685,76 @@ class _DescriptorContext:
         )
 
     @cached_property
-    def autocorrelation_z_values(self) -> dict[str, float]:
-        return self._autocorrelation_property_values(
-            self.autocorrelation_atomic_numbers, "Z"
-        )
+    def autocorrelation_property_vectors(self) -> dict[str, tuple[float, ...]]:
+        """Per-atom property vectors keyed by Mordred property suffix."""
+
+        return {
+            "Z": self.autocorrelation_atomic_numbers,
+            "m": self.autocorrelation_atomic_masses,
+        }
 
     @cached_property
-    def autocorrelation_m_values(self) -> dict[str, float]:
-        return self._autocorrelation_property_values(
-            self.autocorrelation_atomic_masses, "m"
-        )
+    def autocorrelation_values(self) -> dict[str, float]:
+        """Moreau-Broto/Moran/Geary autocorrelations for every property and lag.
 
-    def _autocorrelation_property_values(
-        self, values: tuple[float, ...], suffix: str
-    ) -> dict[str, float]:
-        centered_values = _center_values(values)
-        pairs_by_order = self._autocorrelation_pairs_by_order()
+        All property vectors are stacked and processed together so the shared
+        per-lag graph-distance work (the adjacency-at-distance matrix and its
+        quadratic forms) is computed once per lag instead of once per property.
+        """
+
+        vectors = self.autocorrelation_property_vectors
+        suffixes = tuple(vectors)
+        property_matrix = np.array([vectors[s] for s in suffixes], dtype=float)
+        atom_count = property_matrix.shape[1]
+
+        centered_matrix = property_matrix - property_matrix.mean(axis=1, keepdims=True)
+        centered_square_sums = (centered_matrix**2).sum(axis=1)
+        distance_matrix = np.asarray(self.autocorrelation_distance_matrix)
 
         results: dict[str, float] = {}
-        centered_square_sum = _sum_squares(centered_values)
-        atom_count = len(values)
-
         for order in range(0, 9):
-            pair_count = atom_count if order == 0 else len(pairs_by_order[order])
-            ats = _autocorrelation_order_sum(values, pairs_by_order, order)
-            atsc = _autocorrelation_order_sum(centered_values, pairs_by_order, order)
+            if order == 0:
+                pair_count = atom_count
+                ats = (property_matrix**2).sum(axis=1)
+                atsc = centered_square_sums
+                degrees = None
+            else:
+                adjacency = (distance_matrix == order).astype(float)
+                pair_count = int(adjacency.sum() // 2)
+                ats = 0.5 * ((property_matrix @ adjacency) * property_matrix).sum(axis=1)
+                atsc = 0.5 * ((centered_matrix @ adjacency) * centered_matrix).sum(axis=1)
+                degrees = adjacency.sum(axis=1)
 
-            results[f"ATS{order}{suffix}"] = ats
-            results[f"ATSC{order}{suffix}"] = atsc
+            for index, suffix in enumerate(suffixes):
+                results[f"ATS{order}{suffix}"] = float(ats[index])
+                results[f"ATSC{order}{suffix}"] = float(atsc[index])
+                results[f"AATS{order}{suffix}"] = (
+                    float(ats[index] / pair_count) if pair_count else float("nan")
+                )
+                results[f"AATSC{order}{suffix}"] = (
+                    float(atsc[index] / pair_count) if pair_count else float("nan")
+                )
 
-            results[f"AATS{order}{suffix}"] = (
-                ats / pair_count if pair_count else float("nan")
+            if order == 0:
+                continue
+
+            # Geary numerator, vectorized across properties. With B the
+            # adjacency-at-distance matrix and w a property vector,
+            #   sum_ij B_ij (w_i - w_j)^2 = 2 (w^2 . deg) - 2 (w^T B w)
+            # and w^T B w = 2 * ATS, so the doubly-counted sum is
+            #   2 (w^2 . deg) - 4 * ATS, which Mordred divides by 4 * pair_count.
+            weighted_degree = (property_matrix**2) @ degrees
+            geary_numerators = (
+                (2.0 * weighted_degree - 4.0 * ats) / (4.0 * pair_count)
+                if pair_count
+                else None
             )
-            results[f"AATSC{order}{suffix}"] = (
-                atsc / pair_count if pair_count else float("nan")
-            )
 
-            if order >= 1:
-                aatsc = atsc / pair_count if pair_count else float("nan")
+            for index, suffix in enumerate(suffixes):
+                centered_square_sum = centered_square_sums[index]
+                aatsc = atsc[index] / pair_count if pair_count else float("nan")
                 results[f"MATS{order}{suffix}"] = (
-                    atom_count * aatsc / centered_square_sum
+                    float(atom_count * aatsc / centered_square_sum)
                     if centered_square_sum
                     else float("nan")
                 )
@@ -737,27 +764,14 @@ class _DescriptorContext:
                     if atom_count > 1
                     else float("nan")
                 )
-                results[f"GATS{order}{suffix}"] = (
-                    _geary_numerator(values, pairs_by_order[order], pair_count)
-                    / geary_denominator
-                    if geary_denominator and not math.isnan(geary_denominator)
-                    else float("nan")
-                )
+                if pair_count and geary_denominator and not math.isnan(geary_denominator):
+                    results[f"GATS{order}{suffix}"] = float(
+                        geary_numerators[index] / geary_denominator
+                    )
+                else:
+                    results[f"GATS{order}{suffix}"] = float("nan")
 
         return results
-
-    def _autocorrelation_pairs_by_order(self) -> dict[int, list[tuple[int, int]]]:
-        pairs_by_order: dict[int, list[tuple[int, int]]] = {
-            order: [] for order in range(1, 9)
-        }
-        distance_matrix = self.autocorrelation_distance_matrix
-        atom_count = len(self.autocorrelation_atomic_numbers)
-        for i in range(atom_count):
-            for j in range(i + 1, atom_count):
-                order = int(distance_matrix[i, j])
-                if 1 <= order <= 8:
-                    pairs_by_order[order].append((i, j))
-        return pairs_by_order
 
     @cached_property
     def bcut_z_values(self) -> dict[str, float]:
@@ -1047,53 +1061,12 @@ def _rotatable_bond_ratio(ctx: _DescriptorContext) -> float:
     return rdMolDescriptors.CalcNumRotatableBonds(ctx.mol) / bond_count
 
 
-def _center_values(values: tuple[float, ...]) -> tuple[float, ...]:
-    mean = sum(values) / len(values)
-    return tuple(value - mean for value in values)
-
-
-def _sum_squares(values: tuple[float, ...]) -> float:
-    return sum(value * value for value in values)
-
-
-def _autocorrelation_order_sum(
-    values: tuple[float, ...],
-    pairs_by_order: dict[int, list[tuple[int, int]]],
-    order: int,
-) -> float:
-    if order == 0:
-        return _sum_squares(values)
-
-    return sum(
-        values[i] * values[j]
-        for i, j in pairs_by_order[order]
-    )
-
-
-def _geary_numerator(
-    values: tuple[float, ...],
-    pairs: list[tuple[int, int]],
-    pair_count: int,
-) -> float:
-    if pair_count == 0:
-        return float("nan")
-    return sum((values[i] - values[j]) ** 2 for i, j in pairs) / (2 * pair_count)
-
-
-def _autocorrelation_z_descriptor(name: str) -> DescriptorFunction:
-    if _AUTOCORRELATION_Z_PATTERN.match(name) is None:
-        msg = f"unsupported atomic-number autocorrelation descriptor: {name}"
+def _autocorrelation_descriptor(name: str) -> DescriptorFunction:
+    if _AUTOCORRELATION_PATTERN.match(name) is None:
+        msg = f"unsupported autocorrelation descriptor: {name}"
         raise ValueError(msg)
 
-    return lambda ctx: ctx.autocorrelation_z_values[name]
-
-
-def _autocorrelation_m_descriptor(name: str) -> DescriptorFunction:
-    if _AUTOCORRELATION_M_PATTERN.match(name) is None:
-        msg = f"unsupported atomic-mass autocorrelation descriptor: {name}"
-        raise ValueError(msg)
-
-    return lambda ctx: ctx.autocorrelation_m_values[name]
+    return lambda ctx: ctx.autocorrelation_values[name]
 
 
 def _bcut_z_descriptor(name: str) -> DescriptorFunction:
@@ -1422,11 +1395,8 @@ for _name in PATH_COUNT_DESCRIPTORS:
 for _name in WALK_COUNT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _walk_count_descriptor(_name)
 
-for _name in AUTOCORRELATION_Z_DESCRIPTORS:
-    _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_z_descriptor(_name)
-
-for _name in AUTOCORRELATION_M_DESCRIPTORS:
-    _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_m_descriptor(_name)
+for _name in (*AUTOCORRELATION_Z_DESCRIPTORS, *AUTOCORRELATION_M_DESCRIPTORS):
+    _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_descriptor(_name)
 
 for _name in BCUT_Z_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _bcut_z_descriptor(_name)
