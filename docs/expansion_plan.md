@@ -20,11 +20,16 @@ descriptor that is undefined in both implementations.
 
 - Supported Mordred-name descriptors: 1096.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 63,895.
+- Compatibility-checked panel cases: 60,616 numeric oracle comparisons
+  (of 71,240 descriptor×molecule cells; the remaining 10,624 are Mordred-missing,
+  accepted as both-NaN or documented RDKit improvements).
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
   behavior when Mordred returns missing values for zero-heavy-edge molecules.
+- The public entry point accepts an optional `names=` subset; because each
+  descriptor family is a separately cached calculation on the shared per-molecule
+  context, requesting a subset skips any family no requested descriptor touches.
 
 ## Expansion Order
 
@@ -235,6 +240,38 @@ descriptor that is undefined in both implementations.
     - `Xc-3d`..`Xc-6d`, `Xc-3dv`..`Xc-6dv` (8 cluster)
     - `Xch-3d`..`Xch-7d`, `Xch-3dv`..`Xch-7dv` (10 chain)
     - `Xpc-4d`..`Xpc-6d`, `Xpc-4dv`..`Xpc-6dv` (6 path-cluster)
+
+## Remaining Families (future expansion)
+
+517 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
+They cluster into a few coherent families, in rough priority order:
+
+1. **Matrix-spectral descriptors (~130).** `SpAbs*`, `SpMax*`, `SpDiam*`,
+   `SpAD*`, `SpMAD*`, `LogEE*`, `VE1*`/`VE2*`/`VE3*`, `VR1*`/`VR2*`/`VR3*`,
+   `SM1*` all share one pipeline: build a graph matrix, take its eigenvalues
+   (and, for `VE*`/`VR*`, eigenvector-derived Estrada/Randić sums), then derive
+   spectral aggregates. The matrices are the adjacency matrix, the distance
+   matrix, the Barysz matrix (atomic-property weighted), and the detour matrix
+   (longest-path). Highest count and highly reusable infrastructure. Suggested
+   approach: implement a shared `matrix → eigenvalues → aggregates` helper and
+   land the adjacency- and distance-matrix spectra first (both already available
+   from RDKit), then add the Barysz matrix, and finally the detour matrix (the
+   hardest piece — longest paths).
+2. **Information content (~42).** `IC0`..`IC5`, `TIC*`, `SIC*`, `BIC*`, `CIC*`,
+   `MIC*`, `ZMIC*`. Shannon entropy over atom-neighborhood equivalence classes
+   (Morgan-like coloring at increasing radius). Self-contained and well-bounded;
+   no new matrix infrastructure.
+3. **Extended topochemical atom (~45).** `ETA_*` and the averaged `AETA_*`
+   variants. A large but pure-graph family with its own core/valence-electron
+   accounting; substantial distinct implementation.
+4. **Molecular distance-edge (~16).** `MDEC-*`, `MDEN-*`, `MDEO-*`: per
+   carbon/nitrogen/oxygen bonded-pair distance-edge counts.
+
+All 517 are 2D-computable in principle (they appear in `ignore_3D=True` Mordred
+output). Continue the validated-increment pattern: add the registry group,
+implement RDKit-only helpers, validate every case against the oracle on the
+panel (extending the panel with targeted molecules where a family has
+distinctive behavior), then lock the supported list.
 
 ## Implementation Rules
 
