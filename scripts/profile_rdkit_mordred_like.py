@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
+from typing import NamedTuple
 from pathlib import Path
 import sys
 from time import perf_counter
@@ -11,8 +13,55 @@ from rdkit import Chem
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from descriptors import calc_rdkit_mordred_like_2d
-from descriptors.mordred_rdkit_registry import SUPPORTED_MORDRED_2D_DESCRIPTORS
+from descriptors import calc_rdkit_mordred_like_2d, rdkit_mordred_like
+from descriptors.mordred_rdkit_registry import (
+    AUTOCORRELATION_Z_DESCRIPTORS,
+    BCUT_Z_DESCRIPTORS,
+    ESTATE_ATOM_TYPE_DESCRIPTORS,
+    EXACT_NAME_RDKIT_DESCRIPTORS,
+    GRAPH_TOPOLOGY_DESCRIPTORS,
+    PATH_COUNT_DESCRIPTORS,
+    PHYSICAL_PROPERTY_DESCRIPTORS,
+    RING_COUNT_DESCRIPTORS,
+    SMALL_GRAPH_FORMULA_DESCRIPTORS,
+    SUPPORTED_MORDRED_2D_DESCRIPTORS,
+    WALK_COUNT_DESCRIPTORS,
+)
+
+
+class TimingResult(NamedTuple):
+    label: str
+    descriptor_count: int
+    elapsed: float
+
+
+_NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
+    "exact_rdkit": EXACT_NAME_RDKIT_DESCRIPTORS,
+    "estate_atom_types": ESTATE_ATOM_TYPE_DESCRIPTORS,
+    "ring_counts": RING_COUNT_DESCRIPTORS,
+    "graph_topology": GRAPH_TOPOLOGY_DESCRIPTORS,
+    "path_counts": PATH_COUNT_DESCRIPTORS,
+    "walk_counts": WALK_COUNT_DESCRIPTORS,
+    "autocorrelation_z": AUTOCORRELATION_Z_DESCRIPTORS,
+    "bcut_z": BCUT_Z_DESCRIPTORS,
+    "small_graph_formula": SMALL_GRAPH_FORMULA_DESCRIPTORS,
+    "physical_properties": PHYSICAL_PROPERTY_DESCRIPTORS,
+}
+
+_GROUPED_DESCRIPTOR_NAMES = {
+    descriptor
+    for descriptors in _NAMED_DESCRIPTOR_GROUPS.values()
+    for descriptor in descriptors
+}
+
+RDKIT_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
+    **_NAMED_DESCRIPTOR_GROUPS,
+    "scalar_aliases": tuple(
+        name
+        for name in SUPPORTED_MORDRED_2D_DESCRIPTORS
+        if name not in _GROUPED_DESCRIPTOR_NAMES
+    ),
+}
 
 
 def _load_molecules(panel_path: Path):
@@ -55,6 +104,34 @@ def _time_rdkit(molecules, repeat: int) -> tuple[int, float]:
     return descriptor_count, perf_counter() - start
 
 
+def _time_rdkit_descriptor_names(
+    molecules,
+    repeat: int,
+    descriptor_names: Iterable[str],
+) -> tuple[int, float]:
+    names = tuple(descriptor_names)
+    functions = tuple(rdkit_mordred_like._DESCRIPTOR_FUNCTIONS[name] for name in names)
+    descriptor_count = 0
+    start = perf_counter()
+    for _ in range(repeat):
+        for _, mol in molecules:
+            context = rdkit_mordred_like._DescriptorContext(mol)
+            for function in functions:
+                function(context)
+            descriptor_count += len(functions)
+    return descriptor_count, perf_counter() - start
+
+
+def _time_rdkit_groups(molecules, repeat: int) -> tuple[TimingResult, ...]:
+    return tuple(
+        TimingResult(
+            group_name,
+            *_time_rdkit_descriptor_names(molecules, repeat, descriptor_names),
+        )
+        for group_name, descriptor_names in RDKIT_DESCRIPTOR_GROUPS.items()
+    )
+
+
 def _time_mordred(molecules, repeat: int) -> tuple[int, float]:
     calculator = _load_mordred_calculator()
     descriptor_count = 0
@@ -71,6 +148,12 @@ def _print_result(label: str, descriptor_count: int, elapsed: float) -> None:
     print(f"{label} descriptor values/second: {descriptor_count / elapsed:.2f}")
 
 
+def _print_group_results(results: tuple[TimingResult, ...]) -> None:
+    print("rdkit grouped timings:")
+    for result in results:
+        _print_result(f"rdkit {result.label}", result.descriptor_count, result.elapsed)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repeat", type=int, default=100)
@@ -84,6 +167,11 @@ def main() -> None:
         type=Path,
         default=Path(__file__).resolve().parents[1] / "tests" / "smiles_panel.smi",
     )
+    parser.add_argument(
+        "--grouped",
+        action="store_true",
+        help="also time RDKit descriptors by implementation family",
+    )
     args = parser.parse_args()
 
     molecules = _load_molecules(args.panel)
@@ -94,6 +182,8 @@ def main() -> None:
     if args.backend in {"rdkit", "both"}:
         descriptor_count, elapsed = _time_rdkit(molecules, args.repeat)
         _print_result("rdkit", descriptor_count, elapsed)
+        if args.grouped:
+            _print_group_results(_time_rdkit_groups(molecules, args.repeat))
 
     if args.backend in {"mordred", "both"}:
         descriptor_count, elapsed = _time_mordred(molecules, args.repeat)
