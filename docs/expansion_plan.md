@@ -20,8 +20,8 @@ descriptor that is undefined in both implementations.
 
 - Supported Mordred-name descriptors: 1237.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: ~68,340 numeric oracle comparisons
-  (of ~80,405 descriptor×molecule cells; the remainder are Mordred-missing,
+- Compatibility-checked panel cases: 69,757 numeric oracle comparisons
+  (of 80,405 descriptor×molecule cells; the remaining 10,648 are Mordred-missing,
   accepted as both-NaN or documented RDKit improvements).
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
