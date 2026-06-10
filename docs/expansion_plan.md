@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 394.
+- Supported Mordred-name descriptors: 396.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 25,610.
+- Compatibility-checked panel cases: 25,740.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -102,10 +102,39 @@ descriptor that is undefined in both implementations.
      they require broader documented missing-value expectations and property
      vector validation.
 
-9. Next: investigate BCUT descriptors separately:
-   - Mordred `BCUT*` names do not directly match RDKit `BCUT2D_*` names.
-   - Treat them as unsupported until a descriptor-by-descriptor numerical
-     match is demonstrated.
+9. Completed: investigate BCUT descriptors separately:
+   - RDKit `BCUT2D_*` descriptors do not numerically match Mordred `BCUT*`
+     names on the validation panel and are not treated as aliases.
+   - Added `BCUTZ-1h` and `BCUTZ-1l` with a RDKit-only Burden matrix
+     implementation using atomic numbers on the diagonal.
+   - Deferred other `BCUT*` properties until Mordred atomic-property tables or
+     equivalent RDKit-only property vectors are implemented and validated.
+
+10. Next: expand higher-lag atomic-number autocorrelation descriptors:
+
+    Consider `AATS3Z` through `AATS8Z`, `AATSC3Z` through `AATSC8Z`,
+    `MATS3Z` through `MATS8Z`, and `GATS3Z` through `GATS8Z`. These require
+    explicit missing-value expectations because many validation molecules have
+    no atom pairs at higher graph distances. Add them in small lag-based
+    batches so the missing-value table remains reviewable.
+
+11. Next: implement non-`Z` autocorrelation property vectors:
+
+    Candidate properties include `m`, `v`, `se`, `pe`, `are`, `p`, `i`, `d`,
+    `dv`, `s`, and centered `c` charge variants. Prefer one property family at
+    a time, starting with properties backed by stable RDKit/periodic-table data.
+    Do not add charge or intrinsic-state variants until Gasteiger charge and
+    valence-property behavior is validated on charged and heteroatom-rich panel
+    molecules.
+
+12. Next: expand remaining Mordred `BCUT*` properties:
+
+    Implement Mordred atomic-property vectors for `m`, `v`, `se`, `pe`, `are`,
+    `p`, `i`, `d`, `dv`, `s`, and `c` only when their property sources are
+    explicit and RDKit-only. Add `BCUT*-1h` and `BCUT*-1l` descriptor pairs
+    property-by-property. Keep RDKit `BCUT2D_*` descriptors outside the
+    Mordred-name output unless a descriptor-by-descriptor numerical match is
+    demonstrated.
 
 ## Implementation Rules
 

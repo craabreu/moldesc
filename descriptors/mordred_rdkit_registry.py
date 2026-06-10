@@ -197,6 +197,11 @@ AUTOCORRELATION_Z_DESCRIPTORS: tuple[str, ...] = (
     *(f"GATS{i}Z" for i in range(1, 3)),
 )
 
+BCUT_Z_DESCRIPTORS: tuple[str, ...] = (
+    "BCUTZ-1h",
+    "BCUTZ-1l",
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
@@ -207,6 +212,12 @@ MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit atomic-number autocorrelation calculation"
         for name in AUTOCORRELATION_Z_DESCRIPTORS
+    }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit atomic-number Burden eigenvalue calculation"
+        for name in BCUT_Z_DESCRIPTORS
     }
 )
 

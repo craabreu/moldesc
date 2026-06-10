@@ -7,6 +7,7 @@ from functools import cached_property
 import math
 import re
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdchem
 from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
@@ -14,6 +15,7 @@ from rdkit.Chem.EState import AtomTypes
 
 from .mordred_rdkit_registry import (
     AUTOCORRELATION_Z_DESCRIPTORS,
+    BCUT_Z_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
@@ -317,6 +319,34 @@ class _DescriptorContext:
         return pairs_by_order
 
     @cached_property
+    def bcut_z_values(self) -> dict[str, float]:
+        burden_matrix = 0.001 * np.ones((len(self.atoms), len(self.atoms)))
+        for bond in self.bonds:
+            begin_atom = bond.GetBeginAtom()
+            end_atom = bond.GetEndAtom()
+            begin_index = begin_atom.GetIdx()
+            end_index = end_atom.GetIdx()
+            weight = bond.GetBondTypeAsDouble() / 10.0
+            if begin_atom.GetDegree() == 1 or end_atom.GetDegree() == 1:
+                weight += 0.01
+
+            burden_matrix[begin_index, end_index] = weight
+            burden_matrix[end_index, begin_index] = weight
+
+        for atom in self.atoms:
+            burden_matrix[atom.GetIdx(), atom.GetIdx()] = atom.GetAtomicNum()
+
+        eigenvalues = np.linalg.eig(burden_matrix)[0]
+        if np.iscomplexobj(eigenvalues):
+            eigenvalues = eigenvalues.real
+
+        sorted_eigenvalues = np.sort(eigenvalues)[-1::-1]
+        return {
+            "BCUTZ-1h": float(sorted_eigenvalues[0]),
+            "BCUTZ-1l": float(sorted_eigenvalues[-1]),
+        }
+
+    @cached_property
     def exact_molecular_weight(self) -> float:
         return Descriptors.ExactMolWt(self.mol)
 
@@ -479,6 +509,10 @@ def _autocorrelation_z_descriptor(name: str) -> DescriptorFunction:
         raise ValueError(msg)
 
     return lambda ctx: ctx.autocorrelation_z_values[name]
+
+
+def _bcut_z_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.bcut_z_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -767,6 +801,9 @@ for _name in WALK_COUNT_DESCRIPTORS:
 
 for _name in AUTOCORRELATION_Z_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_z_descriptor(_name)
+
+for _name in BCUT_Z_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _bcut_z_descriptor(_name)
 
 for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS and hasattr(Descriptors, _name):
