@@ -94,6 +94,7 @@ def test_calculator_reuses_expensive_context_values(monkeypatch):
         "distance": 0,
         "adjacency": 0,
         "rings": 0,
+        "ring_filters": 0,
         "fused": 0,
         "hydrogen": 0,
         "kekulized": 0,
@@ -115,6 +116,17 @@ def test_calculator_reuses_expensive_context_values(monkeypatch):
     count_calls("_compute_fused_ring_systems", "fused")
     count_calls("_compute_implicit_hydrogen_count", "hydrogen")
     count_calls("_compute_kekulized_mol", "kekulized")
+    original_ring_filter = rdkit_mordred_like._ring_matches_filters
+
+    def counted_ring_filter(*args, **kwargs):
+        counts["ring_filters"] += 1
+        return original_ring_filter(*args, **kwargs)
+
+    monkeypatch.setattr(
+        rdkit_mordred_like,
+        "_ring_matches_filters",
+        counted_ring_filter,
+    )
 
     mol = Chem.MolFromSmiles("c1ccc2ccccc2c1")
     values = calc_rdkit_mordred_like_2d(mol)
@@ -125,6 +137,7 @@ def test_calculator_reuses_expensive_context_values(monkeypatch):
         "distance": 1,
         "adjacency": 1,
         "rings": 1,
+        "ring_filters": 0,
         "fused": 1,
         "hydrogen": 1,
         "kekulized": 1,

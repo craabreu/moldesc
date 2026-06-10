@@ -6,6 +6,7 @@ from collections.abc import Callable
 from functools import cached_property
 import math
 import re
+from typing import NamedTuple
 
 import numpy as np
 from rdkit import Chem
@@ -27,6 +28,13 @@ from .mordred_rdkit_registry import (
 
 DescriptorValue = float | int
 DescriptorFunction = Callable[["_DescriptorContext"], DescriptorValue]
+
+
+class _RingMetadata(NamedTuple):
+    atoms: frozenset[int]
+    size: int
+    is_aromatic: bool
+    has_hetero: bool
 
 _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
 _PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
@@ -460,11 +468,36 @@ class _DescriptorContext:
         )
 
     @cached_property
+    def ring_metadata(self) -> tuple[_RingMetadata, ...]:
+        return self._compute_ring_metadata(self.ring_atom_sets)
+
+    @cached_property
+    def fused_ring_metadata(self) -> tuple[_RingMetadata, ...]:
+        return self._compute_ring_metadata(self.fused_ring_systems)
+
+    def _compute_ring_metadata(
+        self,
+        ring_sets: tuple[set[int], ...],
+    ) -> tuple[_RingMetadata, ...]:
+        metadata = []
+        for atoms in ring_sets:
+            atom_tuple = tuple(self.mol.GetAtomWithIdx(atom) for atom in atoms)
+            metadata.append(
+                _RingMetadata(
+                    atoms=frozenset(atoms),
+                    size=len(atoms),
+                    is_aromatic=all(atom.GetIsAromatic() for atom in atom_tuple),
+                    has_hetero=any(atom.GetAtomicNum() != 6 for atom in atom_tuple),
+                )
+            )
+        return tuple(metadata)
+
+    @cached_property
     def framework_linker_atoms(self) -> set[int]:
         return self._compute_framework_linker_atoms()
 
     def _compute_framework_linker_atoms(self) -> set[int]:
-        rings = self.mol.GetRingInfo().AtomRings()
+        rings = self.ring_atom_sets
         if len(rings) < 2:
             return set()
 
@@ -841,8 +874,20 @@ def _vabc_volume(ctx: _DescriptorContext) -> float:
         )
         for atom in mol.GetAtoms()
     )
-    aromatic_ring_count = _ring_count_descriptor("naRing")(ctx)
-    aliphatic_ring_count = _ring_count_descriptor("nARing")(ctx)
+    aromatic_ring_count = _ring_metadata_count(
+        ctx,
+        size=None,
+        fused=None,
+        aromaticity="a",
+        hetero=None,
+    )
+    aliphatic_ring_count = _ring_metadata_count(
+        ctx,
+        size=None,
+        fused=None,
+        aromaticity="A",
+        hetero=None,
+    )
     return (
         atom_contribution
         - 5.92 * mol.GetNumBonds()
@@ -1022,6 +1067,44 @@ def _ring_matches_filters(
     return True
 
 
+def _ring_metadata_matches_filters(
+    metadata: _RingMetadata,
+    size: str | None,
+    aromaticity: str | None,
+    hetero: str | None,
+) -> bool:
+    if size == "G12":
+        if metadata.size < 12:
+            return False
+    elif size is not None and metadata.size != int(size):
+        return False
+
+    if aromaticity == "a" and not metadata.is_aromatic:
+        return False
+    if aromaticity == "A" and metadata.is_aromatic:
+        return False
+
+    if hetero is not None and not metadata.has_hetero:
+        return False
+
+    return True
+
+
+def _ring_metadata_count(
+    ctx: _DescriptorContext,
+    size: str | None,
+    fused: str | None,
+    aromaticity: str | None,
+    hetero: str | None,
+) -> int:
+    metadata_values = ctx.fused_ring_metadata if fused is not None else ctx.ring_metadata
+    return sum(
+        1
+        for metadata in metadata_values
+        if _ring_metadata_matches_filters(metadata, size, aromaticity, hetero)
+    )
+
+
 def _ring_count_descriptor(name: str) -> DescriptorFunction:
     match = _RING_COUNT_PATTERN.match(name)
     if match is None:
@@ -1031,16 +1114,7 @@ def _ring_count_descriptor(name: str) -> DescriptorFunction:
     size, fused, aromaticity, hetero = match.groups()
 
     def calc(ctx: _DescriptorContext) -> int:
-        if fused is not None:
-            atom_sets = ctx.fused_ring_systems
-        else:
-            atom_sets = ctx.ring_atom_sets
-
-        return sum(
-            1
-            for atoms in atom_sets
-            if _ring_matches_filters(ctx, atoms, size, aromaticity, hetero)
-        )
+        return _ring_metadata_count(ctx, size, fused, aromaticity, hetero)
 
     return calc
 
