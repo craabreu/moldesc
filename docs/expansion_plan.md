@@ -18,10 +18,10 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1395.
+- Supported Mordred-name descriptors: 1474.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 70,091 numeric oracle comparisons
-  (of 90,675 descriptor×molecule cells; the remaining 20,584 are Mordred-missing,
+- Compatibility-checked panel cases: 75,226 numeric oracle comparisons
+  (of 95,810 descriptor×molecule cells; the remaining 20,584 are Mordred-missing,
   accepted as both-NaN or documented RDKit improvements).
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
@@ -282,27 +282,27 @@ descriptor that is undefined in both implementations.
     12 both-NaN cases (VR3_* for ammonium and methane, SM1_Dt for ammonium and
     methane), auto-accepted under the missing-value policy.
 
-19. Completed: implement EState atom-type max/min descriptors (158 descriptors):
+19. Completed: implement EState atom-type max/min/sum descriptors (237 descriptors):
 
-    Added `MAX*` and `MIN*` — the `max` and `min` aggregation variants of the
-    same `AtomTypeEState` family already implemented for `N*` counts.
-    79 atom types × 2 aggregations = 158 new descriptors.
+    Added `MAX*`, `MIN*` (79 each), and `S*` (79) — the `max`, `min`, and `sum`
+    aggregation variants of the same `AtomTypeEState` family already implemented
+    for `N*` counts.
 
-    Algorithm: pair `AtomTypes.TypeAtoms(mol)` with `EStateIndices(mol)` (both
-    on the heavy-atom mol) to group EState index values by atom type; then for
-    each type return `max(values)` or `min(values)`. Returns NaN when no atom
-    of that type is present in the molecule, matching Mordred's
-    `rethrow_na(ValueError)` policy.
+    Algorithm: one `estate_atom_type_agg` cached property pairs
+    `AtomTypes.TypeAtoms(mol)` with `EStateIndices(mol)` (both on the heavy-atom
+    mol) to group EState index values by atom type. From the grouped dict:
+    - `MAX*` / `MIN*`: `max`/`min(values)`, NaN when no atom of that type is
+      present (matching Mordred's `rethrow_na(ValueError)` policy).
+    - `S*`: `sum(values)`, 0 when absent (matching Mordred's `sum([]) == 0`
+      behavior — the `sum` aggregation never returns NaN).
 
-    Minimal new infrastructure: `EStateIndices` from `rdkit.Chem.EState.EState`
-    and a new `estate_atom_type_extrema` cached property. The 79 base types are
-    derived directly from the existing `ESTATE_ATOM_TYPE_DESCRIPTORS` tuple
-    (stripping the `N` prefix), so the type list stays in one canonical place.
+    The 79 base types are derived from the existing `ESTATE_ATOM_TYPE_DESCRIPTORS`
+    tuple (strip the `N` prefix), so the type list stays in one canonical place.
+    All three aggregations share a single TypeAtoms + EStateIndices pass.
 
-    334 numeric oracle comparisons across the 65-molecule panel (most cells are
-    both-NaN because most specialized atom types are absent in typical molecules).
-    Zero mismatches; 9,936 both-NaN cases auto-accepted under the missing-value
-    policy.
+    Numeric oracle comparisons: 334 (MAX/MIN, most cells both-NaN since rare
+    atom types absent from the panel) + 5,135 (S*, every cell numeric since
+    sum never NaN). Zero mismatches; 9,936 both-NaN cases auto-accepted.
 
 ## Remaining Families (future expansion)
 

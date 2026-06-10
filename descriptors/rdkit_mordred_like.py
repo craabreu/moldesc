@@ -23,6 +23,7 @@ from .mordred_rdkit_registry import (
     CHI_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS,
+    ESTATE_ATOM_TYPE_SUM_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     CONSTITUTIONAL_DESCRIPTORS,
     PHYSICAL_PROPERTY_DESCRIPTORS,
@@ -853,7 +854,7 @@ class _DescriptorContext:
         return counts
 
     @cached_property
-    def estate_atom_type_extrema(self) -> dict[str, float]:
+    def estate_atom_type_agg(self) -> dict[str, float]:
         nan = float("nan")
         grouped: dict[str, list[float]] = {}
         for atom_types, es_val in zip(AtomTypes.TypeAtoms(self.mol), EStateIndices(self.mol)):
@@ -865,10 +866,14 @@ class _DescriptorContext:
             vals = grouped.get(es_type)
             if vals is None:
                 result[name] = nan
-            elif name[0] == "M" and name[1] == "A":
+            elif name[1] == "A":
                 result[name] = max(vals)
             else:
                 result[name] = min(vals)
+        for name in ESTATE_ATOM_TYPE_SUM_DESCRIPTORS:
+            es_type = name[1:]
+            vals = grouped.get(es_type)
+            result[name] = sum(vals) if vals else 0
         return result
 
 
@@ -1421,7 +1426,11 @@ def _estate_atom_type_count(name: str) -> DescriptorFunction:
 
 
 def _estate_atom_type_maxmin(name: str) -> DescriptorFunction:
-    return lambda ctx: ctx.estate_atom_type_extrema[name]
+    return lambda ctx: ctx.estate_atom_type_agg[name]
+
+
+def _estate_atom_type_sum(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.estate_atom_type_agg[name]
 
 
 def _smarts_count_descriptor(smarts: tuple[str, ...]) -> DescriptorFunction:
@@ -1721,6 +1730,9 @@ for _name in ESTATE_ATOM_TYPE_DESCRIPTORS:
 
 for _name in ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _estate_atom_type_maxmin(_name)
+
+for _name in ESTATE_ATOM_TYPE_SUM_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _estate_atom_type_sum(_name)
 
 for _name in RING_COUNT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _ring_count_descriptor(_name)

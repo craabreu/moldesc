@@ -139,8 +139,16 @@ ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS: tuple[str, ...] = (
     *(f"MIN{t}" for t in _ESTATE_BASE_TYPES),
 )
 
+ESTATE_ATOM_TYPE_SUM_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"S{t}" for t in _ESTATE_BASE_TYPES
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit EState atom type max/min" for name in ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS}
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit EState atom type sum" for name in ESTATE_ATOM_TYPE_SUM_DESCRIPTORS}
 )
 
 _RING_SIZE_PREFIXES = ("", *(str(i) for i in range(3, 13)), "G12")
