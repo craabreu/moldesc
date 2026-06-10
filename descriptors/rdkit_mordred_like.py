@@ -20,6 +20,7 @@ from rdkit.Chem.EState.EState import EStateIndices
 from .mordred_rdkit_registry import (
     AUTOCORRELATION_DESCRIPTORS,
     BCUT_DESCRIPTORS,
+    CARBON_TYPES_DESCRIPTORS,
     CHI_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     ETA_DESCRIPTORS,
@@ -756,6 +757,10 @@ class _DescriptorContext:
         return results
 
     @cached_property
+    def detour_matrix(self) -> np.ndarray | None:
+        return _compute_detour_matrix(len(self.atoms), self.bond_atom_pairs)
+
+    @cached_property
     def spectral_values(self) -> dict[str, float]:
         """Matrix-spectral descriptors from A, D, Dt, and Barysz matrices.
 
@@ -778,7 +783,7 @@ class _DescriptorContext:
         ]
 
         # ── Detour matrix (with SM1) ──────────────────────────────────────
-        dt = _compute_detour_matrix(n, bond_pairs)
+        dt = self.detour_matrix
         if dt is not None:
             specs.append(("Dt", dt, True))
         else:
@@ -1131,6 +1136,38 @@ class _DescriptorContext:
 
         return result
 
+    @cached_property
+    def carbon_types_values(self) -> dict[str, float | int]:
+        """Carbon hybridization type counts (CarbonTypes) and HybRatio."""
+        from collections import defaultdict
+        counts: dict[tuple[int | None, int], int] = defaultdict(int)
+        for a in self.mol.GetAtoms():
+            if a.GetAtomicNum() != 6:
+                continue
+            sp = _HYBRIDIZATION_SP.get(a.GetHybridization())
+            c_nb = sum(nb.GetAtomicNum() == 6 for nb in a.GetNeighbors())
+            counts[(sp, c_nb)] += 1
+        sp2 = sum(counts[(2, k)] for k in range(5))
+        sp3 = sum(counts[(3, k)] for k in range(5))
+        hyb_ratio = sp3 / (sp2 + sp3) if (sp2 + sp3) > 0 else float("nan")
+        return {
+            "C1SP1": counts[(1, 1)], "C2SP1": counts[(1, 2)],
+            "C1SP2": counts[(2, 1)], "C2SP2": counts[(2, 2)], "C3SP2": counts[(2, 3)],
+            "C1SP3": counts[(3, 1)], "C2SP3": counts[(3, 2)],
+            "C3SP3": counts[(3, 3)], "C4SP3": counts[(3, 4)],
+            "HybRatio": hyb_ratio,
+        }
+
+    @cached_property
+    def rncg_rpcg_values(self) -> dict[str, float]:
+        """Relative negative/positive charge descriptors (Gasteiger charges)."""
+        charges = np.array(self.gasteiger_charges)
+        neg = charges[charges < 0.0]
+        pos = charges[charges > 0.0]
+        rncg = float(neg[np.argmax(np.abs(neg))] / neg.sum()) if len(neg) > 0 else 0.0
+        rpcg = float(pos[np.argmax(np.abs(pos))] / pos.sum()) if len(pos) > 0 else 0.0
+        return {"RNCG": rncg, "RPCG": rpcg}
+
 
 def _average_molecular_weight(ctx: _DescriptorContext) -> float:
     atom_count = ctx.total_atom_count_including_hydrogen
@@ -1353,6 +1390,38 @@ def _ic_atom_code(bonds_dict, atom_info, adj, root, order):
         _ic_expand_tree(tree, visited, adj)
     return tuple(sorted(_ic_tree_trails(tree, None, (), bonds_dict, atom_info)))
 
+
+# CarbonTypes hybridization SP mapping (Mordred CarbonTypes.py)
+_HYBRIDIZATION_SP: dict[rdchem.HybridizationType, int] = {
+    rdchem.HybridizationType.SP:    1,
+    rdchem.HybridizationType.SP2:   2,
+    rdchem.HybridizationType.SP3:   3,
+    rdchem.HybridizationType.SP3D:  3,
+    rdchem.HybridizationType.SP3D2: 3,
+}
+
+# FilterItLogS SMARTS patterns and coefficients (mordred/LogS.py)
+_FILTER_IT_LOGS_SMARTS: tuple[tuple[Chem.Mol, float], ...] = tuple(
+    (Chem.MolFromSmarts(smarts), coef)
+    for smarts, coef in (
+        ("[NH0;X3;v3]",  0.71535),
+        ("[NH2;X3;v3]",  0.41056),
+        ("[nH0;X3]",     0.82535),
+        ("[OH0;X2;v2]",  0.31464),
+        ("[OH0;X1;v2]",  0.14787),
+        ("[OH1;X2;v2]",  0.62998),
+        ("[CH2;!R]",    -0.35634),
+        ("[CH3;!R]",    -0.33888),
+        ("[CH0;R]",     -0.21912),
+        ("[CH2;R]",     -0.23057),
+        ("[ch0]",       -0.37570),
+        ("[ch1]",       -0.22435),
+        ("F",           -0.21728),
+        ("Cl",          -0.49721),
+        ("Br",          -0.57982),
+        ("I",           -0.51547),
+    )
+)
 
 # Period numbers 1-indexed by atomic number (Z=1→period 1, Z=118→period 7).
 _ETA_PERIODS: list[int] = (
@@ -2246,6 +2315,65 @@ for _name in ETA_DESCRIPTORS:
 
 for _name in MDE_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _mde_descriptor(_name)
+
+
+def _carbon_types_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.carbon_types_values[name]
+
+
+for _name in (*CARBON_TYPES_DESCRIPTORS, "HybRatio"):
+    _DESCRIPTOR_FUNCTIONS[_name] = _carbon_types_descriptor(_name)
+
+for _name in ("RNCG", "RPCG"):
+    _DESCRIPTOR_FUNCTIONS[_name] = (lambda n: lambda ctx: ctx.rncg_rpcg_values[n])(_name)
+
+
+def _vadjmat(ctx: _DescriptorContext) -> float:
+    m = sum(
+        1 for b in ctx.bonds
+        if b.GetBeginAtom().GetAtomicNum() != 1 and b.GetEndAtom().GetAtomicNum() != 1
+    )
+    return math.log2(m) + 1.0 if m > 0 else float("nan")
+
+
+def _lipinski(ctx: _DescriptorContext) -> int:
+    mol = ctx.mol
+    return int(
+        rdMolDescriptors.CalcNumHBD(mol) <= 5
+        and rdMolDescriptors.CalcNumHBA(mol) <= 10
+        and Descriptors.ExactMolWt(mol) <= 500.0
+        and Crippen.MolLogP(mol) <= 5.0
+    )
+
+
+def _ghose_filter(ctx: _DescriptorContext) -> int:
+    mol = ctx.mol
+    mw = Descriptors.ExactMolWt(mol)
+    logp = Crippen.MolLogP(mol)
+    mr = Crippen.MolMR(mol)
+    n = ctx.explicit_hydrogen_mol.GetNumAtoms()
+    return int(160 <= mw <= 480 and 20 <= n <= 70 and -0.4 <= logp <= 5.6 and 40 <= mr <= 130)
+
+
+def _filter_it_logs(ctx: _DescriptorContext) -> float:
+    mol = ctx.mol
+    mw = Descriptors.MolWt(mol)
+    logS = 0.89823 - 0.10369 * math.sqrt(mw)
+    for smarts_mol, coef in _FILTER_IT_LOGS_SMARTS:
+        logS += len(mol.GetSubstructMatches(smarts_mol)) * coef
+    return logS
+
+
+def _detour_index(ctx: _DescriptorContext) -> float:
+    dt = ctx.detour_matrix
+    return int(0.5 * dt.sum()) if dt is not None else float("nan")
+
+
+_DESCRIPTOR_FUNCTIONS["VAdjMat"] = _vadjmat
+_DESCRIPTOR_FUNCTIONS["Lipinski"] = _lipinski
+_DESCRIPTOR_FUNCTIONS["GhoseFilter"] = _ghose_filter
+_DESCRIPTOR_FUNCTIONS["FilterItLogS"] = _filter_it_logs
+_DESCRIPTOR_FUNCTIONS["DetourIndex"] = _detour_index
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

@@ -18,7 +18,7 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1580.
+- Supported Mordred-name descriptors: 1597.
 - Validation molecules: 65.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
@@ -381,11 +381,34 @@ descriptor that is undefined in both implementations.
     the same element and matching heavy-atom degrees v1/v2; `n / exp(Σlog(D[i,j]) / n)`,
     NaN when n=0.
 
+22. Completed: add miscellaneous scalar descriptors (17 new, 1580 → 1597):
+
+    Added `C1SP1`–`C4SP3` (carbon hybridization type counts), `HybRatio`,
+    `VAdjMat`, `RNCG`, `RPCG`, `Lipinski`, `GhoseFilter`, `FilterItLogS`, and
+    `DetourIndex`. Zero mismatches on the 65-molecule panel.
+
+    - CarbonTypes: count C atoms by `(sp_code, n_carbon_neighbors)` on the
+      heavy-atom mol; SP mapping SP→1, SP2→2, SP3/SP3D/SP3D2→3.
+      `HybRatio = sp3/(sp2+sp3)`, NaN when both zero.
+    - `VAdjMat = 1 + log2(m)` over heavy–heavy bonds; NaN when m=0.
+    - `RNCG`/`RPCG`: most-negative / most-positive Gasteiger charge divided by
+      the sum of charges of that sign; 0.0 when no charges of that sign.
+    - `Lipinski`, `GhoseFilter`: integer pass/fail filters from existing RDKit
+      inputs (HBD/HBA, MW, logP, MR, atom count with explicit H).
+    - `FilterItLogS`: Mordred Filter-it LogS model with verbatim SMARTS
+      coefficients from `mordred/LogS.py`.
+    - `DetourIndex = int(0.5·Dt.sum())`; NaN for disconnected molecules.
+      `detour_matrix` is now a shared `@cached_property` used by both
+      `spectral_values` and `DetourIndex`.
+
+    Deferred (16 remaining): AMID/MID (12) — recursive atomic-ID DFS traversal;
+    BalabanJ, Kier1/2/3 — permanently incompatible.
+
 ## Remaining Families (future expansion)
 
-33 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
-All are 2D-computable in principle. Continue the validated-increment pattern.
-Current unsupported list is in `tests/unsupported_mordred.json`.
+16 Mordred 2D descriptors will remain unsupported after step 22
+(`tests/unsupported_mordred.json`). All are 2D-computable.
+Continue the validated-increment pattern.
 
 ## Implementation Rules
 

@@ -132,6 +132,17 @@ Mordred names implemented with explicit RDKit-only helpers:
     `C²/(P[i]·P[j]·π_ij)`, diagonal `1 − C/P[i]` (C = carbon reference)
   - `SM1` is defined only for `_Dt` and `_Dz*` (not `_A` or `_D`, where the
     diagonal is always zero so the trace is always zero)
+- Carbon hybridization types: `C1SP1`, `C2SP1`, `C1SP2`, `C2SP2`, `C3SP2`,
+  `C1SP3`, `C2SP3`, `C3SP3`, `C4SP3` (counts by SP code and carbon-neighbor
+  count on the heavy-atom mol), plus `HybRatio` (`sp3/(sp2+sp3)`, NaN when
+  both zero)
+- Charge and adjacency scalars: `RNCG` and `RPCG` (relative negative/positive
+  Gasteiger charge, 0.0 when no charges of that sign), `VAdjMat`
+  (`1 + log2(m)` over heavy–heavy bonds, NaN when m=0), and `DetourIndex`
+  (`int(0.5·Dt.sum())`, NaN for disconnected molecules)
+- Drug-likeness filters: `Lipinski` (rule of five), `GhoseFilter` (Ghose
+  drug-likeness), and `FilterItLogS` (Filter-it aqueous solubility model with
+  Mordred SMARTS coefficients)
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that

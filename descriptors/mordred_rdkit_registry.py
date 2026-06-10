@@ -430,6 +430,27 @@ MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit extended topochemical atom descriptor" for name in ETA_DESCRIPTORS}
 )
 
+CARBON_TYPES_DESCRIPTORS: tuple[str, ...] = (
+    "C1SP1", "C2SP1",
+    "C1SP2", "C2SP2", "C3SP2",
+    "C1SP3", "C2SP3", "C3SP3", "C4SP3",
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit carbon hybridization type count" for name in CARBON_TYPES_DESCRIPTORS}
+)
+
+MORDRED_RDKIT_ALIASES.update({
+    "HybRatio":     "RDKit SP3/(SP2+SP3) carbon hybridization ratio",
+    "VAdjMat":      "RDKit vertex adjacency information",
+    "RNCG":         "RDKit relative negative charge (Gasteiger)",
+    "RPCG":         "RDKit relative positive charge (Gasteiger)",
+    "Lipinski":     "RDKit Lipinski rule of five",
+    "GhoseFilter":  "RDKit Ghose drug-likeness filter",
+    "FilterItLogS": "RDKit Filter-it LogS model",
+    "DetourIndex":  "RDKit detour index",
+})
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",
