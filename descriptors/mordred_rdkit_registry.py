@@ -132,6 +132,17 @@ MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit EState atom type count" for name in ESTATE_ATOM_TYPE_DESCRIPTORS}
 )
 
+_ESTATE_BASE_TYPES: tuple[str, ...] = tuple(name[1:] for name in ESTATE_ATOM_TYPE_DESCRIPTORS)
+
+ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS: tuple[str, ...] = (
+    *(f"MAX{t}" for t in _ESTATE_BASE_TYPES),
+    *(f"MIN{t}" for t in _ESTATE_BASE_TYPES),
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit EState atom type max/min" for name in ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS}
+)
+
 _RING_SIZE_PREFIXES = ("", *(str(i) for i in range(3, 13)), "G12")
 _FUSED_RING_SIZE_PREFIXES = ("", *(str(i) for i in range(4, 13)), "G12")
 _RING_CLASS_PREFIXES = ("", "a", "A")

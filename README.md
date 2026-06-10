@@ -61,9 +61,11 @@ Mordred names implemented with explicit RDKit-only helpers:
   `piPC10`, `TpiPC10`
 - Walk counts: `MWC01` through `MWC10`, `TMWC10`, `SRW02` through
   `SRW10`, `TSRW10`
-- EState atom-type counts: the full Mordred `N...` family, including common
-  organic types such as `NsCH3`, `NaaCH`, `NssssC`, `NsOH`, `NdO`, `NssO`,
-  `NaaN`, `NddsN`, `NsSH`, `NssS`, `NsF`, `NsCl`, `NsBr`, and `NsI`
+- EState atom-type descriptors: the full Mordred `N...` (count), `MAX...`
+  (max EState index), and `MIN...` (min EState index) families for all 79
+  atom types, including common organic types such as `sCH3`, `aaCH`, `ssssC`,
+  `sOH`, `dO`, `ssO`, `aaN`, `ddsN`, `sSH`, `ssS`, `sF`, `sCl`, `sBr`, and
+  `sI`; `MAX*`/`MIN*` return NaN when no atom of that type is present
 - Acid/base group counts: `nAcid` and `nBase`, implemented from the Mordred
   SMARTS definitions with RDKit substructure matching
 - Chi connectivity indices: the full Kier-Hall family ported from Mordred's `Chi.py`

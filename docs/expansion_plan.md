@@ -18,10 +18,10 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1237.
+- Supported Mordred-name descriptors: 1395.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 69,757 numeric oracle comparisons
-  (of 80,405 descriptor×molecule cells; the remaining 10,648 are Mordred-missing,
+- Compatibility-checked panel cases: 70,091 numeric oracle comparisons
+  (of 90,675 descriptor×molecule cells; the remaining 20,584 are Mordred-missing,
   accepted as both-NaN or documented RDKit improvements).
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
@@ -282,9 +282,31 @@ descriptor that is undefined in both implementations.
     12 both-NaN cases (VR3_* for ammonium and methane, SM1_Dt for ammonium and
     methane), auto-accepted under the missing-value policy.
 
+19. Completed: implement EState atom-type max/min descriptors (158 descriptors):
+
+    Added `MAX*` and `MIN*` — the `max` and `min` aggregation variants of the
+    same `AtomTypeEState` family already implemented for `N*` counts.
+    79 atom types × 2 aggregations = 158 new descriptors.
+
+    Algorithm: pair `AtomTypes.TypeAtoms(mol)` with `EStateIndices(mol)` (both
+    on the heavy-atom mol) to group EState index values by atom type; then for
+    each type return `max(values)` or `min(values)`. Returns NaN when no atom
+    of that type is present in the molecule, matching Mordred's
+    `rethrow_na(ValueError)` policy.
+
+    Minimal new infrastructure: `EStateIndices` from `rdkit.Chem.EState.EState`
+    and a new `estate_atom_type_extrema` cached property. The 79 base types are
+    derived directly from the existing `ESTATE_ATOM_TYPE_DESCRIPTORS` tuple
+    (stripping the `N` prefix), so the type list stays in one canonical place.
+
+    334 numeric oracle comparisons across the 65-molecule panel (most cells are
+    both-NaN because most specialized atom types are absent in typical molecules).
+    Zero mismatches; 9,936 both-NaN cases auto-accepted under the missing-value
+    policy.
+
 ## Remaining Families (future expansion)
 
-376 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
+218 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
 They cluster into a few coherent families, in rough priority order:
 
 1. **Information content (~42).** `IC0`..`IC5`, `TIC*`, `SIC*`, `BIC*`, `CIC*`,

@@ -20,6 +20,7 @@ from descriptors.mordred_rdkit_registry import (
     CHI_DESCRIPTORS,
     CONSTITUTIONAL_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
+    ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS,
     TOPOLOGICAL_CHARGE_DESCRIPTORS,
     EXACT_NAME_RDKIT_DESCRIPTORS,
     GRAPH_TOPOLOGY_DESCRIPTORS,
@@ -42,6 +43,7 @@ class TimingResult(NamedTuple):
 _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "exact_rdkit": EXACT_NAME_RDKIT_DESCRIPTORS,
     "estate_atom_types": ESTATE_ATOM_TYPE_DESCRIPTORS,
+    "estate_atom_type_maxmin": ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS,
     "ring_counts": RING_COUNT_DESCRIPTORS,
     "graph_topology": GRAPH_TOPOLOGY_DESCRIPTORS,
     "path_counts": PATH_COUNT_DESCRIPTORS,
