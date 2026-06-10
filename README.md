@@ -103,6 +103,11 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Topological charge descriptors: `GGI1`–`GGI10` (raw), `JGI1`–`JGI10`
   (mean), and `JGT10` (global), computed from the antisymmetric charge-term
   matrix `CT = A·D⁻² − (A·D⁻²)ᵀ`
+- Information content descriptors: `IC0`–`IC5` (neighborhood IC), `TIC*` (total),
+  `SIC*` (structural, NaN for single-atom molecules), `BIC*` (bonding, NaN for
+  bond-free molecules), `CIC*` (complementary), `MIC*` (mass-weighted), and
+  `ZMIC*` (atomic-number-weighted), each at orders 0–5; computed over
+  Morgan-BFS atom-equivalence classes on the explicit-hydrogen kekulized molecule
 - Matrix-spectral descriptors: `SpAbs_*`, `SpMax_*`, `SpDiam_*`, `SpAD_*`,
   `SpMAD_*`, `LogEE_*`, `VE1_*`/`VE2_*`/`VE3_*`, `VR1_*`/`VR2_*`/`VR3_*`,
   and `SM1_*` (where applicable), each computed over four matrix types:

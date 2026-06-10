@@ -383,6 +383,16 @@ MORDRED_RDKIT_ALIASES.update(
     }
 )
 
+_IC_PREFIXES: tuple[str, ...] = ("IC", "TIC", "SIC", "BIC", "CIC", "MIC", "ZMIC")
+
+INFORMATION_CONTENT_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"{prefix}{order}" for order in range(6) for prefix in _IC_PREFIXES
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit information content descriptor" for name in INFORMATION_CONTENT_DESCRIPTORS}
+)
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",

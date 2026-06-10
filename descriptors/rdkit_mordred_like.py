@@ -22,6 +22,7 @@ from .mordred_rdkit_registry import (
     BCUT_DESCRIPTORS,
     CHI_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
+    INFORMATION_CONTENT_DESCRIPTORS,
     ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS,
     ESTATE_ATOM_TYPE_SUM_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
@@ -876,6 +877,69 @@ class _DescriptorContext:
             result[name] = sum(vals) if vals else 0
         return result
 
+    @cached_property
+    def information_content_values(self) -> dict[str, float]:
+        mol = Chem.Mol(self.explicit_hydrogen_mol)
+        Chem.Kekulize(mol, clearAromaticFlags=True)
+        n = mol.GetNumAtoms()
+        nan = float("nan")
+        result: dict[str, float] = {}
+
+        if n == 0:
+            for name in INFORMATION_CONTENT_DESCRIPTORS:
+                result[name] = nan
+            return result
+
+        log2_n = math.log2(n) if n > 1 else 0.0
+        sum_bo = sum(b.GetBondTypeAsDouble() for b in mol.GetBonds())
+        log2_bo = math.log2(sum_bo) if sum_bo > 0 else nan
+
+        bonds_dict: dict[tuple[int, int], int] = {}
+        for b in mol.GetBonds():
+            s, d = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            t = int(b.GetBondType())
+            bonds_dict[s, d] = t
+            bonds_dict[d, s] = t
+        atom_info = [(a.GetAtomicNum(), a.GetDegree()) for a in mol.GetAtoms()]
+        adj = [[] for _ in range(n)]
+        for b in mol.GetBonds():
+            s, d = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            adj[s].append(d)
+            adj[d].append(s)
+
+        for order in range(6):
+            if order == 0:
+                codes: list = [info[0] for info in atom_info]
+            else:
+                codes = [_ic_atom_code(bonds_dict, atom_info, adj, i, order) for i in range(n)]
+
+            groups: dict = {}
+            for i, code in enumerate(codes):
+                if code not in groups:
+                    groups[code] = (i, 1)
+                else:
+                    groups[code] = (groups[code][0], groups[code][1] + 1)
+
+            ic = 0.0
+            mic = 0.0
+            zmic = 0.0
+            for rep_idx, count in groups.values():
+                p = count / n
+                lp = math.log2(p)
+                ic -= p * lp
+                mic -= mol.GetAtomWithIdx(rep_idx).GetMass() * p * lp
+                zmic -= count * mol.GetAtomWithIdx(rep_idx).GetAtomicNum() * p * lp
+
+            result[f"IC{order}"] = ic
+            result[f"TIC{order}"] = n * ic
+            result[f"SIC{order}"] = ic / log2_n if log2_n > 0 else nan
+            result[f"BIC{order}"] = ic / log2_bo if not math.isnan(log2_bo) else nan
+            result[f"CIC{order}"] = log2_n - ic
+            result[f"MIC{order}"] = mic
+            result[f"ZMIC{order}"] = zmic
+
+        return result
+
 
 def _average_molecular_weight(ctx: _DescriptorContext) -> float:
     atom_count = ctx.total_atom_count_including_hydrogen
@@ -1067,6 +1131,36 @@ def _intrinsic_state(atom: Chem.Atom) -> float:
         _sigma_electron_count(atom),
         _valence_electron_count(atom),
     )
+
+
+def _ic_expand_tree(tree: dict, visited: set, adj: list) -> None:
+    for src, children in list(tree.items()):
+        visited.add(src)
+        if not children:
+            tree[src] = {nb: () for nb in adj[src] if nb not in visited}
+        else:
+            _ic_expand_tree(children, visited, adj)
+
+
+def _ic_tree_trails(tree, before, trail, bonds_dict, atom_info):
+    if len(tree) == 0:
+        yield trail
+    else:
+        for src, subtree in tree.items():
+            code: list = []
+            if before is not None:
+                code.append(bonds_dict[before, src])
+            code.append(atom_info[src])
+            nxt = trail + tuple(code)
+            yield from _ic_tree_trails(subtree, src, nxt, bonds_dict, atom_info)
+
+
+def _ic_atom_code(bonds_dict, atom_info, adj, root, order):
+    tree: dict = {root: ()}
+    visited = {root}
+    for _ in range(order):
+        _ic_expand_tree(tree, visited, adj)
+    return tuple(sorted(_ic_tree_trails(tree, None, (), bonds_dict, atom_info)))
 
 
 def _compute_detour_matrix(
@@ -1407,6 +1501,10 @@ def _chi_descriptor(name: str) -> DescriptorFunction:
 
 def _spectral_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.spectral_values[name]
+
+
+def _information_content_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.information_content_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -1760,6 +1858,9 @@ for _name in CHI_DESCRIPTORS:
 
 for _name in SPECTRAL_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _spectral_descriptor(_name)
+
+for _name in INFORMATION_CONTENT_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _information_content_descriptor(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

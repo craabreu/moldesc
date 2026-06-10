@@ -18,10 +18,10 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1474.
+- Supported Mordred-name descriptors: 1516.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 75,226 numeric oracle comparisons
-  (of 95,810 descriptor×molecule cells; the remaining 20,584 are Mordred-missing,
+- Compatibility-checked panel cases: 77,956 numeric oracle comparisons
+  (of 98,540 descriptor×molecule cells; the remaining 20,584 are Mordred-missing,
   accepted as both-NaN or documented RDKit improvements).
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
@@ -304,22 +304,43 @@ descriptor that is undefined in both implementations.
     atom types absent from the panel) + 5,135 (S*, every cell numeric since
     sum never NaN). Zero mismatches; 9,936 both-NaN cases auto-accepted.
 
+20. Completed: implement information content descriptors (42 descriptors):
+
+    Added `IC0`–`IC5`, `TIC0`–`TIC5`, `SIC0`–`SIC5`, `BIC0`–`BIC5`,
+    `CIC0`–`CIC5`, `MIC0`–`MIC5`, and `ZMIC0`–`ZMIC5` — Shannon entropy
+    over atom-neighborhood equivalence classes at orders 0–5.
+
+    Algorithm (matching Mordred exactly):
+    - Uses explicit-hydrogen kekulized mol — Mordred's `explicit_hydrogens=True`
+      and `kekulize=True` flags; atom count A includes H.
+    - For order 0: atom code = atomic number.
+    - For order m > 0: BFS tree rooted at each atom expanded m levels; each
+      atom's code is the sorted tuple of all root-to-leaf trails, where each
+      trail element is `(bond_type, (atomic_num, degree))`. Two atoms have the
+      same code iff their neighborhoods are structurally identical up to depth m.
+    - `IC_m = -Σ(g/A · log₂(g/A))` over equivalence-class sizes g.
+    - `TIC_m = A · IC_m`
+    - `SIC_m = IC_m / log₂(A)` — NaN when A=1 (single-atom mol, log₂(1)=0)
+    - `BIC_m = IC_m / log₂(Σπ_b)` — NaN when no bonds (Σπ_b=0)
+    - `CIC_m = log₂(A) − IC_m`
+    - `MIC_m` — IC weighted by representative-atom atomic mass per group
+    - `ZMIC_m` — IC weighted by group_size × representative-atom atomic_num
+
+    2,730 numeric oracle comparisons (all cells numeric; no NaN from IC family).
+    Zero mismatches on the 65-molecule panel.
+
 ## Remaining Families (future expansion)
 
-218 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
+97 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
 They cluster into a few coherent families, in rough priority order:
 
-1. **Information content (~42).** `IC0`..`IC5`, `TIC*`, `SIC*`, `BIC*`, `CIC*`,
-   `MIC*`, `ZMIC*`. Shannon entropy over atom-neighborhood equivalence classes
-   (Morgan-like coloring at increasing radius). Self-contained and well-bounded;
-   no new matrix infrastructure.
-2. **Extended topochemical atom (~45).** `ETA_*` and the averaged `AETA_*`
+1. **Extended topochemical atom (~45).** `ETA_*` and the averaged `AETA_*`
    variants. A large but pure-graph family with its own core/valence-electron
    accounting; substantial distinct implementation.
-3. **Molecular distance-edge (~16).** `MDEC-*`, `MDEN-*`, `MDEO-*`: per
+2. **Molecular distance-edge (~16).** `MDEC-*`, `MDEN-*`, `MDEO-*`: per
    carbon/nitrogen/oxygen bonded-pair distance-edge counts.
 
-All 376 are 2D-computable in principle (they appear in `ignore_3D=True` Mordred
+All 97 are 2D-computable in principle (they appear in `ignore_3D=True` Mordred
 output). Continue the validated-increment pattern: add the registry group,
 implement RDKit-only helpers, validate every case against the oracle on the
 panel (extending the panel with targeted molecules where a family has
