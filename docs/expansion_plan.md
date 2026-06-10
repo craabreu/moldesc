@@ -76,9 +76,13 @@ descriptor that is undefined in both implementations.
    - Added acyclic alkane panel molecules to cover simple Chi path behavior.
    - `Kier1`, `Kier2`, and `Kier3` remain excluded because RDKit `Kappa*`
      values do not match Mordred `Kier*` values when Mordred returns numeric
-     values.
+     values. `descriptastorus` wraps the same RDKit `Kappa*` functions and
+     does not help. No external library provides a compatible implementation.
    - `BalabanJ` remains excluded because RDKit and Mordred values differ on
      many validation molecules.
+   - RDKit `fr_*` functional-group counters (85 descriptors) are not Mordred
+     descriptors at all; Mordred has no `fr_*` family. They cannot be added
+     as Mordred-name descriptors and are permanently excluded from this scope.
 
 7. Completed: define missing-value policy:
    - Mordred numeric values must match RDKit numeric values within tolerance.
@@ -187,6 +191,27 @@ descriptor that is undefined in both implementations.
     and `JGT10`. These are matrix-based and RDKit-only, but should be added
     after a focused implementation of the charge-term matrix and distance-lag
     aggregation.
+
+17. Next: expand the Mordred connectivity-index (Xp-*/Xc-*/Xch-*/Xpc-*) family:
+
+    Mordred has 42 X* descriptors; only `Xp-0d` and `Xp-1d` are currently
+    supported. Investigation findings:
+
+    - `Xp-0dv` → RDKit `Chi0v` and `Xp-1dv` → RDKit `Chi1v` are confirmed
+      exact matches and can be added as two-line aliases immediately.
+    - `Xp-2d` through `Xp-7d` (and `v` variants), plus the `Xc-*` (cluster),
+      `Xch-*` (chain), and `Xpc-*` (path-cluster) sub-families (38 descriptors
+      total) have no RDKit built-in equivalent.
+    - `descriptastorus` (v2.7.0.4) only wraps RDKit's native Chi0–Chi4 and adds
+      nothing beyond what RDKit already provides.
+    - No other installable Python package provides the complete Kier-Hall family.
+    - Mordred's own `Chi.py` (~120 lines, RDKit + stdlib only) implements the
+      full family via `FindAllSubgraphsOfLengthN` + a short DFS classifier.
+      A clean-room port is the only viable path to the remaining 38 descriptors.
+    - `Kier1/2/3` (Mordred) ≠ RDKit `Kappa1/2/3` except on pure alkanes;
+      these remain permanently excluded (confirmed by step 6 investigation).
+    - Mordred also exposes averaged variants `AXp-0d` through `AXp-7dv` (+16
+      descriptors) which could be added alongside the path-index port.
 
 ## Implementation Rules
 

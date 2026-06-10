@@ -71,6 +71,14 @@ def test_supported_descriptor_list_is_locked():
     assert SUPPORTED_MORDRED_2D_DESCRIPTORS == expected
 
 
+def test_unsupported_descriptor_list_is_locked():
+    unsupported_path = Path(__file__).with_name("unsupported_mordred.json")
+    expected = tuple(json.loads(unsupported_path.read_text()))
+    all_mordred = mordred_2d_descriptor_names()
+    unsupported = tuple(sorted(n for n in all_mordred if n not in set(SUPPORTED_MORDRED_2D_DESCRIPTORS)))
+    assert unsupported == expected
+
+
 def test_alias_registry_covers_renamed_descriptors():
     renamed = set(SUPPORTED_MORDRED_2D_DESCRIPTORS) - set(EXACT_NAME_RDKIT_DESCRIPTORS)
     assert set(MORDRED_RDKIT_ALIASES) == renamed
