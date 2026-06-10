@@ -188,22 +188,44 @@ WALK_COUNT_DESCRIPTORS: tuple[str, ...] = (
     "TSRW10",
 )
 
-AUTOCORRELATION_Z_DESCRIPTORS: tuple[str, ...] = (
-    *(f"ATS{i}Z" for i in range(0, 9)),
-    *(f"ATSC{i}Z" for i in range(0, 9)),
-    *(f"AATS{i}Z" for i in range(0, 9)),
-    *(f"AATSC{i}Z" for i in range(0, 9)),
-    *(f"MATS{i}Z" for i in range(1, 9)),
-    *(f"GATS{i}Z" for i in range(1, 9)),
+# Moreau-Broto (ATS/AATS), centered (ATSC/AATSC), Moran (MATS) and Geary (GATS)
+# autocorrelation families. Uncentered families are undefined for the Gasteiger
+# charge property, so it only appears in the centered families.
+_AUTOCORRELATION_FULL_FAMILIES: tuple[str, ...] = (
+    *(f"ATS{i}" for i in range(0, 9)),
+    *(f"ATSC{i}" for i in range(0, 9)),
+    *(f"AATS{i}" for i in range(0, 9)),
+    *(f"AATSC{i}" for i in range(0, 9)),
+    *(f"MATS{i}" for i in range(1, 9)),
+    *(f"GATS{i}" for i in range(1, 9)),
+)
+_AUTOCORRELATION_CENTERED_FAMILIES: tuple[str, ...] = (
+    *(f"ATSC{i}" for i in range(0, 9)),
+    *(f"AATSC{i}" for i in range(0, 9)),
+    *(f"MATS{i}" for i in range(1, 9)),
+    *(f"GATS{i}" for i in range(1, 9)),
 )
 
-AUTOCORRELATION_M_DESCRIPTORS: tuple[str, ...] = (
-    *(f"ATS{i}m" for i in range(0, 9)),
-    *(f"ATSC{i}m" for i in range(0, 9)),
-    *(f"AATS{i}m" for i in range(0, 9)),
-    *(f"AATSC{i}m" for i in range(0, 9)),
-    *(f"MATS{i}m" for i in range(1, 9)),
-    *(f"GATS{i}m" for i in range(1, 9)),
+# Property suffix -> the families it appears in, plus a human-readable label.
+AUTOCORRELATION_PROPERTIES: dict[str, tuple[tuple[str, ...], str]] = {
+    "Z": (_AUTOCORRELATION_FULL_FAMILIES, "atomic-number"),
+    "m": (_AUTOCORRELATION_FULL_FAMILIES, "atomic-mass"),
+    "v": (_AUTOCORRELATION_FULL_FAMILIES, "van der Waals volume"),
+    "se": (_AUTOCORRELATION_FULL_FAMILIES, "Sanderson electronegativity"),
+    "pe": (_AUTOCORRELATION_FULL_FAMILIES, "Pauling electronegativity"),
+    "are": (_AUTOCORRELATION_FULL_FAMILIES, "Allred-Rocow electronegativity"),
+    "p": (_AUTOCORRELATION_FULL_FAMILIES, "polarizability"),
+    "i": (_AUTOCORRELATION_FULL_FAMILIES, "ionization potential"),
+    "d": (_AUTOCORRELATION_FULL_FAMILIES, "sigma-electron count"),
+    "dv": (_AUTOCORRELATION_FULL_FAMILIES, "valence-electron count"),
+    "s": (_AUTOCORRELATION_FULL_FAMILIES, "intrinsic state"),
+    "c": (_AUTOCORRELATION_CENTERED_FAMILIES, "Gasteiger charge"),
+}
+
+AUTOCORRELATION_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"{family}{suffix}"
+    for suffix, (families, _label) in AUTOCORRELATION_PROPERTIES.items()
+    for family in families
 )
 
 BCUT_Z_DESCRIPTORS: tuple[str, ...] = (
@@ -232,18 +254,13 @@ MORDRED_RDKIT_ALIASES.update(
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit adjacency walk count calculation" for name in WALK_COUNT_DESCRIPTORS}
 )
-MORDRED_RDKIT_ALIASES.update(
-    {
-        name: "RDKit atomic-number autocorrelation calculation"
-        for name in AUTOCORRELATION_Z_DESCRIPTORS
-    }
-)
-MORDRED_RDKIT_ALIASES.update(
-    {
-        name: "RDKit atomic-mass autocorrelation calculation"
-        for name in AUTOCORRELATION_M_DESCRIPTORS
-    }
-)
+for _suffix, (_families, _label) in AUTOCORRELATION_PROPERTIES.items():
+    MORDRED_RDKIT_ALIASES.update(
+        {
+            f"{family}{_suffix}": f"RDKit {_label} autocorrelation calculation"
+            for family in _families
+        }
+    )
 MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit atomic-number Burden eigenvalue calculation"

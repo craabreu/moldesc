@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 481.
+- Supported Mordred-name descriptors: 983.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 31,265.
+- Compatibility-checked panel cases: 63,895.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -123,24 +123,24 @@ descriptor that is undefined in both implementations.
       both-`NaN` cases need no enumeration; the raw `ATS*`/`ATSC*` sums stay
       numeric and are checked against Mordred as usual.
 
-11. In progress: implement non-`Z` autocorrelation property vectors:
+11. Completed: implement non-`Z` autocorrelation property vectors:
 
-    - Generalized the atomic-number autocorrelation machinery into a single
-      vectorized `autocorrelation_values` that stacks every property vector and
-      computes all properties together per lag. The shared per-lag graph-distance
-      work (adjacency-at-distance matrix and its quadratic forms) and the Geary
-      numerator are done once per lag in numpy instead of once per property in
-      Python, so adding more properties scales far better.
-    - Completed the mass (`m`) family: `ATS*m`, `ATSC*m`, `AATS*m`, `AATSC*m`
-      (lags 0-8) and `MATS*m`, `GATS*m` (lags 1-8). Mass uses Mordred's standard
-      atomic weights, replicated in `_MASS_BY_ATOMIC_NUM` because RDKit's
-      `GetAtomicWeight` differs beyond tolerance for several elements.
-    - Next properties, one family at a time, backed by stable periodic-table
-      data: `v` (van der Waals volume), `se`/`pe`/`are` (electronegativities),
-      `p` (polarizability), `i` (ionization potential). Defer charge (`c`) and
-      intrinsic-state (`s`, `dv`) variants until Gasteiger charge and
-      valence-property behavior is validated on charged and heteroatom-rich
-      panel molecules.
+    - Generalized the autocorrelation machinery into a single vectorized
+      `autocorrelation_values` that stacks every property vector and computes all
+      properties together per lag. The shared per-lag graph-distance work and the
+      Geary numerator run once per lag in numpy, so adding properties scales well.
+    - Added every Mordred autocorrelation property, all validated against the
+      oracle on the panel with zero mismatches:
+      - per-element table properties: `m` (mass), `v` (van der Waals volume),
+        `se`/`pe`/`are` (Sanderson/Pauling/Allred-Rocow electronegativity),
+        `p` (polarizability), `i` (ionization potential).
+      - environment-dependent properties computed per atom with RDKit: `d`
+        (sigma electrons), `dv` (valence electrons), `s` (intrinsic state), and
+        `c` (Gasteiger charge via `rdPartialCharges.ComputeGasteigerCharges`).
+    - `c` only appears in the centered families (`ATSC`/`AATSC`/`MATS`/`GATS`),
+      matching Mordred.
+    - Per-element tables now live in the bundled `atomic_properties.csv` data
+      file rather than hard-coded dicts.
 
 12. Next: expand remaining Mordred `BCUT*` properties:
 

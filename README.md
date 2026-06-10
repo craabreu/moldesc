@@ -68,14 +68,18 @@ Mordred names implemented with explicit RDKit-only helpers:
   SMARTS definitions with RDKit substructure matching
 - Chi topological indices: `Xp-0d` and `Xp-1d`, implemented as validated RDKit
   `Chi0` and `Chi1` aliases
-- Atomic-number autocorrelation descriptors: `ATS0Z` through `ATS8Z`,
-  `ATSC0Z` through `ATSC8Z`, `AATS0Z` through `AATS8Z`, `AATSC0Z` through
-  `AATSC8Z`, `MATS1Z` through `MATS8Z`, and `GATS1Z` through `GATS8Z`
-  (the averaged/normalized variants return documented `NaN` for molecules
-  with no atom pairs at that graph distance)
-- Atomic-mass autocorrelation descriptors: the same `ATS`/`ATSC`/`AATS`/`AATSC`
-  (lags 0-8) and `MATS`/`GATS` (lags 1-8) families weighted by Mordred standard
-  atomic weights, suffixed `m` (e.g. `ATS0m`, `MATS1m`, `GATS8m`)
+- Autocorrelation descriptors: the Moreau-Broto (`ATS`/`AATS`, lags 0-8),
+  centered (`ATSC`/`AATSC`, lags 0-8), Moran (`MATS`, lags 1-8) and Geary
+  (`GATS`, lags 1-8) families, each weighted by an atomic property and suffixed
+  with its Mordred property code:
+  - `Z` atomic number, `m` mass, `v` van der Waals volume, `se`/`pe`/`are`
+    Sanderson/Pauling/Allred-Rocow electronegativity, `p` polarizability,
+    `i` ionization potential, `d` sigma-electron count, `dv` valence-electron
+    count, `s` intrinsic state, and `c` Gasteiger charge
+  - the charge property `c` only has centered families (`ATSC`/`AATSC`/`MATS`/
+    `GATS`), matching Mordred
+  - the averaged/normalized variants return `NaN` for molecules with no atom
+    pairs at that graph distance (undefined in both Mordred and RDKit)
 - Atomic-number BCUT descriptors: `BCUTZ-1h` and `BCUTZ-1l`
 - Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
   `fMF`

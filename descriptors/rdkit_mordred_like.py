@@ -17,8 +17,7 @@ from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors, rdPartialCharges
 from rdkit.Chem.EState import AtomTypes
 
 from .mordred_rdkit_registry import (
-    AUTOCORRELATION_M_DESCRIPTORS,
-    AUTOCORRELATION_Z_DESCRIPTORS,
+    AUTOCORRELATION_DESCRIPTORS,
     BCUT_Z_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
@@ -43,7 +42,7 @@ _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
 _PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
 _WALK_COUNT_PATTERN = re.compile(r"^(T)?(?:(M)WC|(SR)W)(\d+)$")
 _AUTOCORRELATION_PATTERN = re.compile(
-    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)(Z|m)$"
+    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)(are|se|pe|dv|Z|m|v|p|i|d|s|c)$"
 )
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
 _ACID_GROUP_SMARTS = (
@@ -368,26 +367,42 @@ class _DescriptorContext:
     def autocorrelation_distance_matrix(self):
         return Chem.GetDistanceMatrix(self.explicit_hydrogen_mol, force=True)
 
-    @cached_property
-    def autocorrelation_atomic_numbers(self) -> tuple[float, ...]:
+    def _element_property_vector(
+        self, table: dict[int, float]
+    ) -> tuple[float, ...]:
         return tuple(
-            float(atom.GetAtomicNum()) for atom in self.explicit_hydrogen_mol.GetAtoms()
+            _atomic_property_value(table, atom.GetAtomicNum())
+            for atom in self.explicit_hydrogen_mol.GetAtoms()
         )
 
     @cached_property
-    def autocorrelation_atomic_masses(self) -> tuple[float, ...]:
+    def gasteiger_charges(self) -> tuple[float, ...]:
+        # ComputeGasteigerCharges annotates atoms in place, so work on a copy to
+        # avoid mutating the cached explicit-hydrogen molecule used elsewhere.
+        mol = Chem.Mol(self.explicit_hydrogen_mol)
+        rdPartialCharges.ComputeGasteigerCharges(mol)
         return tuple(
-            _atomic_property_value(_MASS_BY_ATOMIC_NUM, atom.GetAtomicNum())
-            for atom in self.explicit_hydrogen_mol.GetAtoms()
+            float(atom.GetDoubleProp("_GasteigerCharge")) for atom in mol.GetAtoms()
         )
 
     @cached_property
     def autocorrelation_property_vectors(self) -> dict[str, tuple[float, ...]]:
         """Per-atom property vectors keyed by Mordred property suffix."""
 
+        atoms = list(self.explicit_hydrogen_mol.GetAtoms())
         return {
-            "Z": self.autocorrelation_atomic_numbers,
-            "m": self.autocorrelation_atomic_masses,
+            "Z": tuple(float(atom.GetAtomicNum()) for atom in atoms),
+            "m": self._element_property_vector(_MASS_BY_ATOMIC_NUM),
+            "v": self._element_property_vector(_VDW_VOLUME_BY_ATOMIC_NUM),
+            "se": self._element_property_vector(_SANDERSON_EN_BY_ATOMIC_NUM),
+            "pe": self._element_property_vector(_PAULING_EN_BY_ATOMIC_NUM),
+            "are": self._element_property_vector(_ALLRED_ROCOW_EN_BY_ATOMIC_NUM),
+            "p": self._element_property_vector(_POLARIZABILITY_94_BY_ATOMIC_NUM),
+            "i": self._element_property_vector(_IONIZATION_POTENTIAL_BY_ATOMIC_NUM),
+            "d": tuple(float(_sigma_electron_count(atom)) for atom in atoms),
+            "dv": tuple(_valence_electron_count(atom) for atom in atoms),
+            "s": tuple(_intrinsic_state(atom) for atom in atoms),
+            "c": self.gasteiger_charges,
         }
 
     @cached_property
@@ -684,6 +699,41 @@ def _framework_molecular_fraction(ctx: _DescriptorContext) -> float:
 
 def _atomic_property_value(table: dict[int, float], atomic_num: int) -> float:
     return table.get(atomic_num, float("nan"))
+
+
+_PERIODIC_TABLE = Chem.GetPeriodicTable()
+
+
+def _sigma_electron_count(atom: Chem.Atom) -> int:
+    """Number of non-hydrogen neighbors (Mordred ``d`` property)."""
+
+    return sum(1 for neighbor in atom.GetNeighbors() if neighbor.GetAtomicNum() != 1)
+
+
+def _valence_electron_count(atom: Chem.Atom) -> float:
+    """Kier-Hall valence-electron count (Mordred ``dv`` property)."""
+
+    atomic_num = atom.GetAtomicNum()
+    if atomic_num == 1:
+        return 0.0
+    formal_charge = atom.GetFormalCharge()
+    outer = _PERIODIC_TABLE.GetNOuterElecs(atomic_num) - formal_charge
+    core = atomic_num - formal_charge
+    hydrogens = atom.GetTotalNumHs() + sum(
+        1 for neighbor in atom.GetNeighbors() if neighbor.GetAtomicNum() == 1
+    )
+    return (outer - hydrogens) / (core - outer - 1)
+
+
+def _intrinsic_state(atom: Chem.Atom) -> float:
+    """Electrotopological intrinsic state (Mordred ``s`` property)."""
+
+    sigma = _sigma_electron_count(atom)
+    if sigma == 0:
+        return float("nan")
+    period = _PERIOD_BY_ATOMIC_NUM.get(atom.GetAtomicNum(), float("nan"))
+    valence = _valence_electron_count(atom)
+    return ((2.0 / period) ** 2 * valence + 1) / sigma
 
 
 def _atomic_polarizability(ctx: _DescriptorContext) -> float:
@@ -1092,7 +1142,7 @@ for _name in PATH_COUNT_DESCRIPTORS:
 for _name in WALK_COUNT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _walk_count_descriptor(_name)
 
-for _name in (*AUTOCORRELATION_Z_DESCRIPTORS, *AUTOCORRELATION_M_DESCRIPTORS):
+for _name in AUTOCORRELATION_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_descriptor(_name)
 
 for _name in BCUT_Z_DESCRIPTORS:

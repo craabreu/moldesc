@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from descriptors import calc_rdkit_mordred_like_2d, rdkit_mordred_like
 from descriptors.mordred_rdkit_registry import (
-    AUTOCORRELATION_Z_DESCRIPTORS,
+    AUTOCORRELATION_DESCRIPTORS,
     BCUT_Z_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     EXACT_NAME_RDKIT_DESCRIPTORS,
@@ -42,7 +42,7 @@ _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "graph_topology": GRAPH_TOPOLOGY_DESCRIPTORS,
     "path_counts": PATH_COUNT_DESCRIPTORS,
     "walk_counts": WALK_COUNT_DESCRIPTORS,
-    "autocorrelation_z": AUTOCORRELATION_Z_DESCRIPTORS,
+    "autocorrelation": AUTOCORRELATION_DESCRIPTORS,
     "bcut_z": BCUT_Z_DESCRIPTORS,
     "small_graph_formula": SMALL_GRAPH_FORMULA_DESCRIPTORS,
     "physical_properties": PHYSICAL_PROPERTY_DESCRIPTORS,
