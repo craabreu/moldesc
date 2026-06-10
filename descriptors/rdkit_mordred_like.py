@@ -256,6 +256,67 @@ class _DescriptorContext:
         )
 
     @cached_property
+    def autocorrelation_z_values(self) -> dict[str, float]:
+        values = self.autocorrelation_atomic_numbers
+        centered_values = _center_values(values)
+        pairs_by_order = self._autocorrelation_pairs_by_order()
+
+        results: dict[str, float] = {}
+        centered_square_sum = _sum_squares(centered_values)
+        atom_count = len(values)
+
+        for order in range(0, 9):
+            pair_count = atom_count if order == 0 else len(pairs_by_order[order])
+            ats = _autocorrelation_order_sum(values, pairs_by_order, order)
+            atsc = _autocorrelation_order_sum(centered_values, pairs_by_order, order)
+
+            results[f"ATS{order}Z"] = ats
+            results[f"ATSC{order}Z"] = atsc
+
+            if order <= 2:
+                results[f"AATS{order}Z"] = (
+                    ats / pair_count if pair_count else float("nan")
+                )
+                results[f"AATSC{order}Z"] = (
+                    atsc / pair_count if pair_count else float("nan")
+                )
+
+            if 1 <= order <= 2:
+                aatsc = atsc / pair_count if pair_count else float("nan")
+                results[f"MATS{order}Z"] = (
+                    atom_count * aatsc / centered_square_sum
+                    if centered_square_sum
+                    else float("nan")
+                )
+
+                geary_denominator = (
+                    centered_square_sum / (atom_count - 1)
+                    if atom_count > 1
+                    else float("nan")
+                )
+                results[f"GATS{order}Z"] = (
+                    _geary_numerator(values, pairs_by_order[order], pair_count)
+                    / geary_denominator
+                    if geary_denominator and not math.isnan(geary_denominator)
+                    else float("nan")
+                )
+
+        return results
+
+    def _autocorrelation_pairs_by_order(self) -> dict[int, list[tuple[int, int]]]:
+        pairs_by_order: dict[int, list[tuple[int, int]]] = {
+            order: [] for order in range(1, 9)
+        }
+        distance_matrix = self.autocorrelation_distance_matrix
+        atom_count = len(self.autocorrelation_atomic_numbers)
+        for i in range(atom_count):
+            for j in range(i + 1, atom_count):
+                order = int(distance_matrix[i, j])
+                if 1 <= order <= 8:
+                    pairs_by_order[order].append((i, j))
+        return pairs_by_order
+
+    @cached_property
     def exact_molecular_weight(self) -> float:
         return Descriptors.ExactMolWt(self.mol)
 
@@ -379,101 +440,45 @@ def _rotatable_bond_ratio(ctx: _DescriptorContext) -> float:
     return rdMolDescriptors.CalcNumRotatableBonds(ctx.mol) / bond_count
 
 
-def _autocorrelation_pair_count(ctx: _DescriptorContext, order: int) -> int:
-    if order == 0:
-        return len(ctx.autocorrelation_atomic_numbers)
-
-    distance_matrix = ctx.autocorrelation_distance_matrix
-    atom_count = len(ctx.autocorrelation_atomic_numbers)
-    return sum(
-        1
-        for i in range(atom_count)
-        for j in range(i + 1, atom_count)
-        if distance_matrix[i, j] == order
-    )
-
-
-def _autocorrelation_values(
-    ctx: _DescriptorContext,
-    *,
-    centered: bool,
-) -> tuple[float, ...]:
-    values = ctx.autocorrelation_atomic_numbers
-    if not centered:
-        return values
-
+def _center_values(values: tuple[float, ...]) -> tuple[float, ...]:
     mean = sum(values) / len(values)
     return tuple(value - mean for value in values)
 
 
-def _autocorrelation_sum(
-    ctx: _DescriptorContext,
-    order: int,
-    *,
-    centered: bool,
-) -> float:
-    values = _autocorrelation_values(ctx, centered=centered)
-    if order == 0:
-        return sum(value * value for value in values)
+def _sum_squares(values: tuple[float, ...]) -> float:
+    return sum(value * value for value in values)
 
-    distance_matrix = ctx.autocorrelation_distance_matrix
+
+def _autocorrelation_order_sum(
+    values: tuple[float, ...],
+    pairs_by_order: dict[int, list[tuple[int, int]]],
+    order: int,
+) -> float:
+    if order == 0:
+        return _sum_squares(values)
+
     return sum(
         values[i] * values[j]
-        for i in range(len(values))
-        for j in range(i + 1, len(values))
-        if distance_matrix[i, j] == order
+        for i, j in pairs_by_order[order]
     )
 
 
+def _geary_numerator(
+    values: tuple[float, ...],
+    pairs: list[tuple[int, int]],
+    pair_count: int,
+) -> float:
+    if pair_count == 0:
+        return float("nan")
+    return sum((values[i] - values[j]) ** 2 for i, j in pairs) / (2 * pair_count)
+
+
 def _autocorrelation_z_descriptor(name: str) -> DescriptorFunction:
-    match = _AUTOCORRELATION_Z_PATTERN.match(name)
-    if match is None:
+    if _AUTOCORRELATION_Z_PATTERN.match(name) is None:
         msg = f"unsupported atomic-number autocorrelation descriptor: {name}"
         raise ValueError(msg)
 
-    family, order_text = match.groups()
-    order = int(order_text)
-    centered = family in {"ATSC", "AATSC", "MATS", "GATS"}
-
-    def calc(ctx: _DescriptorContext) -> float:
-        pair_count = _autocorrelation_pair_count(ctx, order)
-        value = _autocorrelation_sum(ctx, order, centered=centered)
-
-        if family in {"ATS", "ATSC"}:
-            return value
-
-        if pair_count == 0:
-            return float("nan")
-
-        averaged = value / pair_count
-        if family in {"AATS", "AATSC"}:
-            return averaged
-
-        centered_values = _autocorrelation_values(ctx, centered=True)
-        centered_square_sum = sum(value * value for value in centered_values)
-        if centered_square_sum == 0:
-            return float("nan")
-
-        if family == "MATS":
-            return len(centered_values) * averaged / centered_square_sum
-
-        if len(centered_values) <= 1:
-            return float("nan")
-
-        distance_matrix = ctx.autocorrelation_distance_matrix
-        atomic_numbers = ctx.autocorrelation_atomic_numbers
-        geary_numerator = sum(
-            (atomic_numbers[i] - atomic_numbers[j]) ** 2
-            for i in range(len(centered_values))
-            for j in range(i + 1, len(centered_values))
-            if distance_matrix[i, j] == order
-        ) / (2 * pair_count)
-        geary_denominator = centered_square_sum / (len(centered_values) - 1)
-        if geary_denominator == 0:
-            return float("nan")
-        return geary_numerator / geary_denominator
-
-    return calc
+    return lambda ctx: ctx.autocorrelation_z_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
