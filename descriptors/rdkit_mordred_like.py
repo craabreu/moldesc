@@ -579,15 +579,12 @@ class _DescriptorContext:
             results[f"ATS{order}Z"] = ats
             results[f"ATSC{order}Z"] = atsc
 
-            if order <= 2:
-                results[f"AATS{order}Z"] = (
-                    ats / pair_count if pair_count else float("nan")
-                )
-                results[f"AATSC{order}Z"] = (
-                    atsc / pair_count if pair_count else float("nan")
-                )
+            results[f"AATS{order}Z"] = ats / pair_count if pair_count else float("nan")
+            results[f"AATSC{order}Z"] = (
+                atsc / pair_count if pair_count else float("nan")
+            )
 
-            if 1 <= order <= 2:
+            if order >= 1:
                 aatsc = atsc / pair_count if pair_count else float("nan")
                 results[f"MATS{order}Z"] = (
                     atom_count * aatsc / centered_square_sum

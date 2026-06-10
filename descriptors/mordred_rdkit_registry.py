@@ -191,10 +191,10 @@ WALK_COUNT_DESCRIPTORS: tuple[str, ...] = (
 AUTOCORRELATION_Z_DESCRIPTORS: tuple[str, ...] = (
     *(f"ATS{i}Z" for i in range(0, 9)),
     *(f"ATSC{i}Z" for i in range(0, 9)),
-    *(f"AATS{i}Z" for i in range(0, 3)),
-    *(f"AATSC{i}Z" for i in range(0, 3)),
-    *(f"MATS{i}Z" for i in range(1, 3)),
-    *(f"GATS{i}Z" for i in range(1, 3)),
+    *(f"AATS{i}Z" for i in range(0, 9)),
+    *(f"AATSC{i}Z" for i in range(0, 9)),
+    *(f"MATS{i}Z" for i in range(1, 9)),
+    *(f"GATS{i}Z" for i in range(1, 9)),
 )
 
 BCUT_Z_DESCRIPTORS: tuple[str, ...] = (

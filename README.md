@@ -69,8 +69,10 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Chi topological indices: `Xp-0d` and `Xp-1d`, implemented as validated RDKit
   `Chi0` and `Chi1` aliases
 - Atomic-number autocorrelation descriptors: `ATS0Z` through `ATS8Z`,
-  `ATSC0Z` through `ATSC8Z`, `AATS0Z` through `AATS2Z`, `AATSC0Z` through
-  `AATSC2Z`, `MATS1Z`, `MATS2Z`, `GATS1Z`, and `GATS2Z`
+  `ATSC0Z` through `ATSC8Z`, `AATS0Z` through `AATS8Z`, `AATSC0Z` through
+  `AATSC8Z`, `MATS1Z` through `MATS8Z`, and `GATS1Z` through `GATS8Z`
+  (the averaged/normalized variants return documented `NaN` for molecules
+  with no atom pairs at that graph distance)
 - Atomic-number BCUT descriptors: `BCUTZ-1h` and `BCUTZ-1l`
 - Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
   `fMF`

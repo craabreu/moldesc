@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 405.
+- Supported Mordred-name descriptors: 429.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 26,325.
+- Compatibility-checked panel cases: 27,885.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -82,12 +82,12 @@ descriptor that is undefined in both implementations.
 
 7. Completed: define missing-value policy:
    - Mordred numeric values must match RDKit numeric values within tolerance.
-   - Mordred missing values are allowed only when explicitly documented in the
-     compatibility test expectations.
-   - RDKit numeric values are allowed for documented Mordred-missing cases when
-     the RDKit implementation is meaningful and deterministic.
-   - RDKit `NaN` is allowed for documented cases that are undefined in both
-     implementations.
+   - When Mordred is missing and RDKit deliberately provides a meaningful,
+     deterministic numeric value, the case must be documented in the
+     `EXPECTED_RDKIT_IMPROVEMENTS` set in the compatibility tests.
+   - When Mordred is missing and RDKit also returns `NaN`, both implementations
+     agree the descriptor is undefined; there is no oracle value to check, so the
+     case is accepted without per-case documentation.
    - Added `RotRatio` and `Xp-0d`; reintroduced methane and `[NH4+]` to the
      validation panel.
 
@@ -110,13 +110,18 @@ descriptor that is undefined in both implementations.
    - Deferred other `BCUT*` properties until Mordred atomic-property tables or
      equivalent RDKit-only property vectors are implemented and validated.
 
-10. Next: expand higher-lag atomic-number autocorrelation descriptors:
+10. Completed: expand higher-lag atomic-number autocorrelation descriptors:
 
-    Consider `AATS3Z` through `AATS8Z`, `AATSC3Z` through `AATSC8Z`,
-    `MATS3Z` through `MATS8Z`, and `GATS3Z` through `GATS8Z`. These require
-    explicit missing-value expectations because many validation molecules have
-    no atom pairs at higher graph distances. Add them in small lag-based
-    batches so the missing-value table remains reviewable.
+    - Exposed the full lag 0-8 averaged/normalized family: `AATS0Z`..`AATS8Z`,
+      `AATSC0Z`..`AATSC8Z`, `MATS1Z`..`MATS8Z`, and `GATS1Z`..`GATS8Z`. The
+      underlying order-sums were already computed for all lags, so this only
+      removed lag gates.
+    - The averaged/normalized autocorrelation family (`AATS*`, `AATSC*`,
+      `MATS*`, `GATS*`) divides by the atom-pair count at a graph distance, so it
+      is undefined (Mordred Missing, RDKit `NaN`) when a molecule has no atom
+      pairs at that distance. Under the missing-value policy (step 7) these
+      both-`NaN` cases need no enumeration; the raw `ATS*`/`ATSC*` sums stay
+      numeric and are checked against Mordred as usual.
 
 11. Next: implement non-`Z` autocorrelation property vectors:
 

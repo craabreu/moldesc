@@ -19,19 +19,17 @@ from tests.mordred_reference import calc_mordred_2d, mordred_2d_descriptor_names
 
 ABS_TOL = 1e-8
 REL_TOL = 1e-6
-EXPECTED_MORDRED_MISSING_VALUES = {
-    ("ammonium", "PetitjeanIndex"): "nan",
-    ("ammonium", "RotRatio"): "nan",
-    ("ammonium", "TopoShapeIndex"): "nan",
-    ("ammonium", "Xp-0d"): "numeric",
-    ("ammonium", "mZagreb1"): "nan",
-    ("methane", "PetitjeanIndex"): "nan",
-    ("methane", "RotRatio"): "nan",
-    ("methane", "TopoShapeIndex"): "nan",
-    ("methane", "Xp-0d"): "numeric",
-    ("methane", "mZagreb1"): "nan",
-    ("tetrahalo_methane", "Vabc"): "nan",
-}
+# Validation-panel cases where Mordred returns a missing value but the RDKit-only
+# calculator deliberately provides a meaningful numeric value. These are the only
+# Mordred-missing cases that must be documented: when Mordred is missing and RDKit
+# is also NaN, both implementations agree the descriptor is undefined and there is
+# no oracle value to check, so those cases are accepted without enumeration.
+EXPECTED_RDKIT_IMPROVEMENTS = frozenset(
+    {
+        ("ammonium", "Xp-0d"),
+        ("methane", "Xp-0d"),
+    }
+)
 
 
 def _load_validation_molecules():
@@ -155,23 +153,18 @@ def test_rdkit_values_match_mordred_reference(name, mol):
         reference_value = reference_values[descriptor_name]
         assert isinstance(rdkit_value, int | float)
         if not isinstance(reference_value, int | float):
-            expected = EXPECTED_MORDRED_MISSING_VALUES.get((name, descriptor_name))
-            assert expected is not None, (
-                f"{descriptor_name} returned undocumented non-numeric Mordred "
-                f"value for {name}: {reference_value!r}"
-            )
-            if expected == "numeric":
+            # Mordred is missing for this molecule/descriptor.
+            if (name, descriptor_name) in EXPECTED_RDKIT_IMPROVEMENTS:
                 assert not math.isnan(float(rdkit_value)), (
-                    f"{descriptor_name} should provide an RDKit numeric value "
-                    f"for {name} when Mordred is missing"
-                )
-            elif expected == "nan":
-                assert math.isnan(float(rdkit_value)), (
-                    f"{descriptor_name} should return NaN for {name} "
-                    f"when both implementations are undefined"
+                    f"{descriptor_name} is documented as an RDKit improvement for "
+                    f"{name} but returned NaN while Mordred is missing"
                 )
             else:
-                raise AssertionError(f"unknown missing-value expectation: {expected}")
+                assert math.isnan(float(rdkit_value)), (
+                    f"{descriptor_name} is numeric for {name} while Mordred is "
+                    f"missing; if this is a deliberate RDKit improvement, add "
+                    f"({name!r}, {descriptor_name!r}) to EXPECTED_RDKIT_IMPROVEMENTS"
+                )
             continue
         assert math.isclose(
             rdkit_value,

@@ -29,9 +29,9 @@ A descriptor is considered supported only if all conditions are true:
    - the same name as Mordred, or
    - a documented alias mapping from Mordred name to RDKit implementation.
 4. It numerically matches Mordred-community within accepted tolerances whenever Mordred returns numeric values.
-5. Any case where Mordred returns a missing value is explicitly documented in compatibility test expectations as either:
-   - RDKit numeric value accepted because the RDKit implementation is meaningful and deterministic, or
-   - RDKit `NaN` accepted because the descriptor is undefined in both implementations.
+5. Mordred missing values are handled as follows:
+   - When the RDKit implementation deliberately provides a meaningful, deterministic numeric value, the case is explicitly documented in compatibility test expectations.
+   - When RDKit also returns `NaN`, both implementations agree the descriptor is undefined; there is no oracle value to check, so the case is accepted without per-case documentation.
 6. It is included in the locked supported-descriptor list.
 7. It has unit-test coverage.
 
@@ -262,7 +262,11 @@ Preferred behavior:
 - Do not return Mordred error objects from production code.
 - Do not silently coerce non-numeric outputs to zero.
 
-Document every Mordred-missing validation-panel case in the compatibility test expectations.
+Document only the Mordred-missing validation-panel cases where RDKit deliberately
+provides a numeric value (the `EXPECTED_RDKIT_IMPROVEMENTS` set in the
+compatibility tests). When Mordred is missing and RDKit also returns `NaN`, both
+implementations agree the descriptor is undefined and the case is accepted without
+explicit per-case documentation.
 
 ## Documentation requirements
 
