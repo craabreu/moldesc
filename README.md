@@ -80,7 +80,11 @@ Mordred names implemented with explicit RDKit-only helpers:
     `GATS`), matching Mordred
   - the averaged/normalized variants return `NaN` for molecules with no atom
     pairs at that graph distance (undefined in both Mordred and RDKit)
-- Atomic-number BCUT descriptors: `BCUTZ-1h` and `BCUTZ-1l`
+- BCUT descriptors: `BCUT*-1h` and `BCUT*-1l` for all 12 Mordred property
+  suffixes (`Z`, `m`, `v`, `se`, `pe`, `are`, `p`, `i`, `d`, `dv`, `s`, `c`),
+  implemented via RDKit Burden matrix eigenvalues; Gasteiger charge (`c`) uses
+  the heavy-atom mol with implicit-H contribution (`_GasteigerHCharge`),
+  matching Mordred's behavior
 - Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
   `fMF`
 - Physical-property table descriptors: `apol`, `bpol`, `VMcGowan`, and `Vabc`
@@ -91,8 +95,8 @@ name because Mordred exposes the compatible descriptors as `TopoPSA` and
 `TopoPSA(NO)`. `Vabc` returns documented `NaN` for atoms outside its Bondi
 radius table, such as iodine in the validation panel. Other RDKit-native
 `Chi*`, `Kappa*`, `fr_*`, autocorrelation, and `BCUT2D_*` descriptors are
-intentionally excluded from the Mordred-name output unless separately
-validated. Future functional-group expansion should start from Mordred
+intentionally excluded from the Mordred-name output unless separately validated.
+RDKit `BCUT2D_*` are not aliases for Mordred `BCUT*` names. Future functional-group expansion should start from Mordred
 descriptor names and targeted counterexamples, not from bulk RDKit `fr_*`
 helpers.
 

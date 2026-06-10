@@ -18,7 +18,7 @@ from rdkit.Chem.EState import AtomTypes
 
 from .mordred_rdkit_registry import (
     AUTOCORRELATION_DESCRIPTORS,
-    BCUT_Z_DESCRIPTORS,
+    BCUT_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     PHYSICAL_PROPERTY_DESCRIPTORS,
@@ -486,32 +486,75 @@ class _DescriptorContext:
         return results
 
     @cached_property
-    def bcut_z_values(self) -> dict[str, float]:
-        burden_matrix = 0.001 * np.ones((len(self.atoms), len(self.atoms)))
+    def _burden_matrix_base(self) -> np.ndarray:
+        n = len(self.atoms)
+        B = 0.001 * np.ones((n, n))
         for bond in self.bonds:
-            begin_atom = bond.GetBeginAtom()
-            end_atom = bond.GetEndAtom()
-            begin_index = begin_atom.GetIdx()
-            end_index = end_atom.GetIdx()
-            weight = bond.GetBondTypeAsDouble() / 10.0
-            if begin_atom.GetDegree() == 1 or end_atom.GetDegree() == 1:
-                weight += 0.01
+            i = bond.GetBeginAtom().GetIdx()
+            j = bond.GetEndAtom().GetIdx()
+            w = bond.GetBondTypeAsDouble() / 10.0
+            if bond.GetBeginAtom().GetDegree() == 1 or bond.GetEndAtom().GetDegree() == 1:
+                w += 0.01
+            B[i, j] = w
+            B[j, i] = w
+        return B
 
-            burden_matrix[begin_index, end_index] = weight
-            burden_matrix[end_index, begin_index] = weight
+    @cached_property
+    def _bcut_gasteiger_diagonal(self) -> list[float]:
+        # BCUT uses the heavy-atom mol; _GasteigerHCharge holds the implicit-H contribution.
+        mol = Chem.Mol(self.mol)
+        rdPartialCharges.ComputeGasteigerCharges(mol)
+        result = []
+        for atom in mol.GetAtoms():
+            q = atom.GetDoubleProp("_GasteigerCharge")
+            if atom.HasProp("_GasteigerHCharge"):
+                q += atom.GetDoubleProp("_GasteigerHCharge")
+            result.append(q)
+        return result
 
-        for atom in self.atoms:
-            burden_matrix[atom.GetIdx(), atom.GetIdx()] = atom.GetAtomicNum()
+    @cached_property
+    def bcut_values(self) -> dict[str, float]:
+        atoms = self.atoms
+        n = len(atoms)
+        props = ("Z", "m", "v", "se", "pe", "are", "p", "i", "d", "dv", "s", "c")
+        diag_matrix = np.array(
+            [
+                [float(a.GetAtomicNum()) for a in atoms],
+                [_MASS_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_VDW_VOLUME_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_SANDERSON_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_PAULING_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_ALLRED_ROCOW_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_POLARIZABILITY_94_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_IONIZATION_POTENTIAL_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [float(_sigma_electron_count(a)) for a in atoms],
+                [_valence_electron_count(a) for a in atoms],
+                [_intrinsic_state(a) for a in atoms],
+                self._bcut_gasteiger_diagonal,
+            ],
+            dtype=float,
+        )  # shape (12, n)
 
-        eigenvalues = np.linalg.eig(burden_matrix)[0]
-        if np.iscomplexobj(eigenvalues):
-            eigenvalues = eigenvalues.real
+        # Build a batch of 12 Burden matrices differing only in their diagonals.
+        nan_rows = np.isnan(diag_matrix).any(axis=1)
+        safe_diag = diag_matrix.copy()
+        safe_diag[nan_rows] = 0.0  # sentinel to avoid LinAlgError; results overwritten below
 
-        sorted_eigenvalues = np.sort(eigenvalues)[-1::-1]
-        return {
-            "BCUTZ-1h": float(sorted_eigenvalues[0]),
-            "BCUTZ-1l": float(sorted_eigenvalues[-1]),
-        }
+        batch = np.broadcast_to(self._burden_matrix_base, (len(props), n, n)).copy()
+        idx = np.arange(n)
+        batch[:, idx, idx] = safe_diag
+
+        ev = np.linalg.eig(batch)[0]  # (12, n), one call for all properties
+        if np.iscomplexobj(ev):
+            ev = ev.real
+        sorted_ev = np.sort(ev, axis=1)[:, ::-1]  # descending per row
+        sorted_ev[nan_rows] = float("nan")
+
+        results: dict[str, float] = {}
+        for k, prop in enumerate(props):
+            results[f"BCUT{prop}-1h"] = float(sorted_ev[k, 0])
+            results[f"BCUT{prop}-1l"] = float(sorted_ev[k, -1])
+        return results
 
     @cached_property
     def exact_molecular_weight(self) -> float:
@@ -816,8 +859,8 @@ def _autocorrelation_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.autocorrelation_values[name]
 
 
-def _bcut_z_descriptor(name: str) -> DescriptorFunction:
-    return lambda ctx: ctx.bcut_z_values[name]
+def _bcut_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.bcut_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -1145,8 +1188,8 @@ for _name in WALK_COUNT_DESCRIPTORS:
 for _name in AUTOCORRELATION_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_descriptor(_name)
 
-for _name in BCUT_Z_DESCRIPTORS:
-    _DESCRIPTOR_FUNCTIONS[_name] = _bcut_z_descriptor(_name)
+for _name in BCUT_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _bcut_descriptor(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

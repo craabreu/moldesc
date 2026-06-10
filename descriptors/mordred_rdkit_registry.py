@@ -228,9 +228,14 @@ AUTOCORRELATION_DESCRIPTORS: tuple[str, ...] = tuple(
     for family in families
 )
 
-BCUT_Z_DESCRIPTORS: tuple[str, ...] = (
-    "BCUTZ-1h",
-    "BCUTZ-1l",
+_BCUT_PROPERTIES: tuple[str, ...] = (
+    "Z", "m", "v", "se", "pe", "are", "p", "i", "d", "dv", "s", "c",
+)
+
+BCUT_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"BCUT{prop}{suffix}"
+    for prop in _BCUT_PROPERTIES
+    for suffix in ("-1h", "-1l")
 )
 
 SMALL_GRAPH_FORMULA_DESCRIPTORS: tuple[str, ...] = (
@@ -263,8 +268,8 @@ for _suffix, (_families, _label) in AUTOCORRELATION_PROPERTIES.items():
     )
 MORDRED_RDKIT_ALIASES.update(
     {
-        name: "RDKit atomic-number Burden eigenvalue calculation"
-        for name in BCUT_Z_DESCRIPTORS
+        name: "RDKit Burden matrix eigenvalue calculation"
+        for name in BCUT_DESCRIPTORS
     }
 )
 MORDRED_RDKIT_ALIASES.update(

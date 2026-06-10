@@ -18,7 +18,7 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 983.
+- Supported Mordred-name descriptors: 1005.
 - Validation molecules: 65.
 - Compatibility-checked panel cases: 63,895.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
@@ -142,14 +142,24 @@ descriptor that is undefined in both implementations.
     - Per-element tables now live in the bundled `atomic_properties.csv` data
       file rather than hard-coded dicts.
 
-12. Next: expand remaining Mordred `BCUT*` properties:
+12. Completed: expand remaining Mordred `BCUT*` properties:
 
-    Implement Mordred atomic-property vectors for `m`, `v`, `se`, `pe`, `are`,
-    `p`, `i`, `d`, `dv`, `s`, and `c` only when their property sources are
-    explicit and RDKit-only. Add `BCUT*-1h` and `BCUT*-1l` descriptor pairs
-    property-by-property. Keep RDKit `BCUT2D_*` descriptors outside the
-    Mordred-name output unless a descriptor-by-descriptor numerical match is
-    demonstrated.
+    Added `BCUT*-1h` and `BCUT*-1l` for all 12 Mordred property suffixes. The
+    shared Burden matrix off-diagonal (bond weights) is built once; the diagonal
+    is swapped per property before solving the eigenvalue problem.
+
+    - Table properties (`m`, `v`, `se`, `pe`, `are`, `p`, `i`) reuse the same
+      per-element tables already loaded for autocorrelation.
+    - Environment-dependent properties (`d`, `dv`, `s`) reuse the same per-atom
+      helper functions (`_sigma_electron_count`, `_valence_electron_count`,
+      `_intrinsic_state`).
+    - Gasteiger charge (`c`) is computed on the heavy-atom mol (matching
+      Mordred's `explicit_hydrogens = False`); the implicit-hydrogen contribution
+      is captured via `_GasteigerHCharge`, which Mordred adds to `_GasteigerCharge`
+      to get the effective per-atom charge.
+    - Zero mismatches on the full validation panel; 4 both-NaN cases (molecules
+      with atoms outside the property table, e.g. iodine-containing compounds for
+      some properties) auto-accepted under the missing-value policy.
 
 13. Completed: add small standalone graph/formula descriptors:
 
