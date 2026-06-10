@@ -1,0 +1,77 @@
+# Optimization Notes
+
+Performance notes for the RDKit-only descriptor calculator. The compatibility
+contract is fixed (every supported descriptor must still match the Mordred
+oracle within tolerance), so every optimization here is **behavior-preserving**:
+it changes how a value is computed, never what the value is.
+
+## Strategy
+
+1. **Profile before optimizing.** Use `scripts/profile_rdkit_mordred_like.py
+   --grouped` to rank descriptor families, but read it by *total elapsed per
+   group*, not throughput-per-descriptor — a small family can still dominate
+   wall-clock. Then drill in with `cProfile` (sort by `tottime`) to separate
+   Python-level cost from the C++/RDKit calls underneath.
+2. **Prefer provably-equivalent algebraic shortcuts over micro-tuning.** The
+   biggest wins come from recognizing that an expensive intermediate result is
+   never actually needed, or that a quantity has a cheaper closed form. Verify
+   the equivalence numerically against the current implementation across the
+   full panel and every parameter (order/lag/property) *before* replacing code,
+   then rely on the oracle test suite as the safety net.
+3. **Batch into numpy when the per-item work is uniform.** Stacking many small
+   matrices or vectors and issuing one vectorized call amortizes Python/dispatch
+   overhead.
+4. **Resist speculative optimization.** If a fast-path is not demonstrably
+   helping on the validation panel, the added branch/complexity is not worth it.
+   Keep the simplest code that hits the measured target.
+
+## Worked examples
+
+### Autocorrelation: fused per-lag numpy pass
+
+All autocorrelation properties share the same per-lag graph-distance work (the
+adjacency-at-distance matrix and its quadratic forms). Rather than re-running
+that O(n²) work once per property, `autocorrelation_values` stacks every
+property vector into a `P×n` matrix and computes all properties together per
+lag. The Geary numerator uses the identity
+`Σᵢⱼ Bᵢⱼ(wᵢ−wⱼ)² = 2(w²·deg) − 4·ATS` so it never materializes the pairwise
+difference matrix. Adding properties now scales with a matrix width, not with
+repeated graph traversals — autocorrelation is the cheapest compute-intensive
+group per descriptor as a result.
+
+### BCUT: one batched eigensolve instead of twelve
+
+The 12 Burden matrices for the 12 BCUT properties differ only in their diagonal;
+the off-diagonal bond-weight structure is identical. `bcut_values` builds the
+shared off-diagonal once, broadcasts it into a `(12, n, n)` batch, swaps each
+property's diagonal in, and calls `np.linalg.eig` **once** on the batch instead
+of 12 times. NaN-diagonal rows (atoms outside a property table) are replaced
+with a `0.0` sentinel before the solve — LAPACK raises `LinAlgError` on NaN
+input — and overwritten with NaN after sorting. This lifted the BCUT group from
+~85k to ~138k descriptors/sec.
+
+### Path counts: "simple path ⟺ N+1 distinct atoms"
+
+`MPC*`/`piPC*` count *self-avoiding* paths and sum their bond-order products.
+The original code, for each path returned by `FindAllPathsOfLengthN`, did two
+passes: first reconstruct the ordered atom sequence (branchy bond-to-atom
+connectivity logic), then re-iterate building a `set` to test that no atom
+repeats. cProfile showed the cost was almost entirely this Python per-path work,
+not the C++ enumeration — and the ordered sequence was only ever used for the
+distinctness check.
+
+Key invariant: RDKit paths never repeat a *bond*, so a path of `N` bonds is an
+atom-simple path **iff it touches exactly `N+1` distinct atoms** (revisiting an
+atom on a bond-distinct trail would close a cycle, raising the edge/vertex
+count). That collapses both passes into one: union the bond endpoints into a
+set, multiply the bond orders, and accept the path when `len(atoms) == order+1`.
+Verified to reproduce identical counts and π-weights across the full panel × all
+orders before replacing the code. Result: ~11% faster on the group and ~40 lines
+of fragile connectivity reconstruction deleted.
+
+A ring-free fast-path (every bond-trail in an acyclic graph is automatically
+simple, so the set check can be skipped) was prototyped and **rejected**: the
+validation panel is ring-heavy, so cyclic molecules dominate the path
+enumeration and the branch showed no measurable benefit while adding complexity.
+Recorded here so it is not re-attempted without a workload that actually
+warrants it.

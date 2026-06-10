@@ -174,63 +174,27 @@ class _DescriptorContext:
             self._path_count_cache[order] = self._compute_path_count(order)
         return self._path_count_cache[order]
 
-    def _path_bond_ids_to_atom_ids_and_pi_weight(
-        self,
-        path,
-    ) -> tuple[tuple[int, ...], float]:
-        path_iter = iter(path)
-        pi_weight = 1.0
-
-        try:
-            bond_index = next(path_iter)
-        except StopIteration:
-            return (), pi_weight
-
-        pi_weight *= self.bond_orders[bond_index]
-        atom0_from, atom0_to = self.bond_atom_pairs[bond_index]
-
-        try:
-            bond_index = next(path_iter)
-        except StopIteration:
-            return (atom0_from, atom0_to), pi_weight
-
-        pi_weight *= self.bond_orders[bond_index]
-        atom1_from, atom1_to = self.bond_atom_pairs[bond_index]
-
-        if atom0_from in [atom1_from, atom1_to]:
-            atoms = [atom0_to, atom0_from]
-            current = atom1_from if atom0_from == atom1_to else atom1_to
-        else:
-            atoms = [atom0_from, atom0_to]
-            current = atom1_from if atom0_to == atom1_to else atom1_to
-
-        for bond_index in path_iter:
-            atom_from, atom_to = self.bond_atom_pairs[bond_index]
-            pi_weight *= self.bond_orders[bond_index]
-            atoms.append(current)
-
-            if atom_from == current:
-                current = atom_to
-            else:
-                current = atom_from
-
-        atoms.append(current)
-        return tuple(atoms), pi_weight
-
     def _compute_path_count(self, order: int) -> tuple[int, float]:
+        # RDKit paths never repeat a bond, so a path of ``order`` bonds is an
+        # atom-simple path iff it touches exactly ``order + 1`` distinct atoms.
+        # That lets us count and pi-weight each path in a single pass over its
+        # bonds, without reconstructing the ordered atom sequence.
         path_count = 0
         pi_path_count = 0.0
+        expected_atom_count = order + 1
+        bond_atom_pairs = self.bond_atom_pairs
+        bond_orders = self.bond_orders
 
         for path in Chem.FindAllPathsOfLengthN(self.mol, order):
-            atom_ids = set()
+            atom_ids: set[int] = set()
+            pi_weight = 1.0
+            for bond_index in path:
+                begin_atom, end_atom = bond_atom_pairs[bond_index]
+                atom_ids.add(begin_atom)
+                atom_ids.add(end_atom)
+                pi_weight *= bond_orders[bond_index]
 
-            atom_path, pi_weight = self._path_bond_ids_to_atom_ids_and_pi_weight(path)
-            for atom_index in atom_path:
-                if atom_index in atom_ids:
-                    break
-
-                atom_ids.add(atom_index)
-            else:
+            if len(atom_ids) == expected_atom_count:
                 path_count += 1
                 pi_path_count += pi_weight
 
