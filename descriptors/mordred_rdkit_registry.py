@@ -393,6 +393,43 @@ MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit information content descriptor" for name in INFORMATION_CONTENT_DESCRIPTORS}
 )
 
+MDE_DESCRIPTORS: tuple[str, ...] = tuple(
+    f"MDE{sym}-{a}{b}"
+    for sym, max_v in [("C", 4), ("N", 3), ("O", 2)]
+    for a in range(1, max_v + 1)
+    for b in range(a, max_v + 1)
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit molecular distance edge descriptor" for name in MDE_DESCRIPTORS}
+)
+
+ETA_DESCRIPTORS: tuple[str, ...] = (
+    "ETA_alpha", "AETA_alpha",
+    "ETA_beta_s", "AETA_beta_s",
+    "ETA_beta_ns_d", "AETA_beta_ns_d",
+    "ETA_beta_ns", "AETA_beta_ns",
+    "ETA_beta", "AETA_beta",
+    "ETA_dBeta", "AETA_dBeta",
+    "ETA_eta", "AETA_eta",
+    "ETA_eta_L", "AETA_eta_L",
+    "ETA_eta_R", "AETA_eta_R",
+    "ETA_eta_RL", "AETA_eta_RL",
+    "ETA_eta_F", "AETA_eta_F",
+    "ETA_eta_FL", "AETA_eta_FL",
+    "ETA_eta_B", "AETA_eta_B",
+    "ETA_eta_BR", "AETA_eta_BR",
+    "ETA_epsilon_1", "ETA_epsilon_2", "ETA_epsilon_3", "ETA_epsilon_4", "ETA_epsilon_5",
+    "ETA_dEpsilon_A", "ETA_dEpsilon_B", "ETA_dEpsilon_C", "ETA_dEpsilon_D",
+    "ETA_dAlpha_A", "ETA_dAlpha_B",
+    "ETA_psi_1", "ETA_dPsi_A", "ETA_dPsi_B",
+    "ETA_shape_p", "ETA_shape_y", "ETA_shape_x",
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit extended topochemical atom descriptor" for name in ETA_DESCRIPTORS}
+)
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",

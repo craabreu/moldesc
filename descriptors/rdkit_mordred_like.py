@@ -22,9 +22,11 @@ from .mordred_rdkit_registry import (
     BCUT_DESCRIPTORS,
     CHI_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
+    ETA_DESCRIPTORS,
     INFORMATION_CONTENT_DESCRIPTORS,
     ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS,
     ESTATE_ATOM_TYPE_SUM_DESCRIPTORS,
+    MDE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     CONSTITUTIONAL_DESCRIPTORS,
     PHYSICAL_PROPERTY_DESCRIPTORS,
@@ -940,6 +942,195 @@ class _DescriptorContext:
 
         return result
 
+    @cached_property
+    def eta_values(self) -> dict[str, float]:
+        """Extended topochemical atom (ETA/AETA) descriptors.
+
+        All 45 descriptors require a connected molecule (EtaBase.require_connected=True).
+        The reference alkane and saturated-skeleton mols are built lazily and return
+        NaN for any descriptor that depends on them when construction fails.
+        """
+        nan = float("nan")
+        n = len(self.atoms)
+
+        if n == 0 or len(Chem.GetMolFrags(self.mol)) > 1:
+            return {name: nan for name in ETA_DESCRIPTORS}
+
+        # Kekulize once with aromatic flags preserved for GetIsAromatic() / bond checks.
+        mol = Chem.Mol(self.mol)
+        Chem.Kekulize(mol)
+
+        alpha, eps, beta_sigma, beta_ns, beta_d = _eta_atom_properties(mol)
+
+        gamma: list[float] = []
+        for i in range(n):
+            denom = beta_sigma[i] + beta_ns[i] + beta_d[i]
+            gamma.append(alpha[i] / denom if denom != 0.0 else nan)
+
+        D = self.distance_matrix
+        result: dict[str, float] = {}
+
+        alpha_total = sum(alpha)
+        result["ETA_alpha"] = alpha_total
+        result["AETA_alpha"] = alpha_total / n
+
+        beta_s = sum(b * 0.5 for b in beta_sigma)
+        result["ETA_beta_s"] = beta_s
+        result["AETA_beta_s"] = beta_s / n
+
+        beta_ns_d = sum(beta_d)
+        result["ETA_beta_ns_d"] = beta_ns_d
+        result["AETA_beta_ns_d"] = beta_ns_d / n
+
+        beta_ns_total = sum(b * 0.5 + d for b, d in zip(beta_ns, beta_d))
+        result["ETA_beta_ns"] = beta_ns_total
+        result["AETA_beta_ns"] = beta_ns_total / n
+
+        beta_total = beta_s + beta_ns_total
+        result["ETA_beta"] = beta_total
+        result["AETA_beta"] = beta_total / n
+
+        d_beta = beta_ns_total - beta_s
+        result["ETA_dBeta"] = d_beta
+        result["AETA_dBeta"] = d_beta / n
+
+        eta = _eta_composite(gamma, D, local=False)
+        eta_L = _eta_composite(gamma, D, local=True)
+        result["ETA_eta"] = eta
+        result["AETA_eta"] = eta / n
+        result["ETA_eta_L"] = eta_L
+        result["AETA_eta_L"] = eta_L / n
+
+        # Reference mol (all-C, all-SINGLE): topology unchanged, gamma values updated.
+        # EtaCompositeIndex uses the ORIGINAL mol's distance matrix even for reference.
+        rmol = _eta_build_reference_mol(mol)
+        if rmol is not None:
+            ralpha, _reps, rbeta_sigma, rbeta_ns, rbeta_d = _eta_atom_properties(rmol)
+            rgamma: list[float] = []
+            for i in range(n):
+                rd = rbeta_sigma[i] + rbeta_ns[i] + rbeta_d[i]
+                rgamma.append(ralpha[i] / rd if rd != 0.0 else nan)
+            eta_R = _eta_composite(rgamma, D, local=False)
+            eta_RL = _eta_composite(rgamma, D, local=True)
+            alpha_R = sum(ralpha)
+
+            result["ETA_eta_R"] = eta_R
+            result["AETA_eta_R"] = eta_R / n
+            result["ETA_eta_RL"] = eta_RL
+            result["AETA_eta_RL"] = eta_RL / n
+            result["ETA_eta_F"] = eta_R - eta
+            result["AETA_eta_F"] = (eta_R - eta) / n
+            result["ETA_eta_FL"] = eta_RL - eta_L
+            result["AETA_eta_FL"] = (eta_RL - eta_L) / n
+            result["ETA_dAlpha_A"] = max((alpha_total - alpha_R) / n, 0.0)
+            result["ETA_dAlpha_B"] = max((alpha_R - alpha_total) / n, 0.0)
+
+            if n <= 1:
+                result["ETA_eta_B"] = nan
+                result["AETA_eta_B"] = nan
+                result["ETA_eta_BR"] = nan
+                result["AETA_eta_BR"] = nan
+            else:
+                eta_NL = 1.0 if n == 2 else math.sqrt(2) + 0.5 * (n - 3)
+                ring_count = mol.GetRingInfo().NumRings()
+                eta_B = eta_NL - eta_RL
+                eta_BR = eta_B + 0.086 * ring_count
+                result["ETA_eta_B"] = eta_B
+                result["AETA_eta_B"] = eta_B / n
+                result["ETA_eta_BR"] = eta_BR
+                result["AETA_eta_BR"] = eta_BR / n
+        else:
+            for nm in (
+                "ETA_eta_R", "AETA_eta_R", "ETA_eta_RL", "AETA_eta_RL",
+                "ETA_eta_F", "AETA_eta_F", "ETA_eta_FL", "AETA_eta_FL",
+                "ETA_dAlpha_A", "ETA_dAlpha_B",
+                "ETA_eta_B", "AETA_eta_B", "ETA_eta_BR", "AETA_eta_BR",
+            ):
+                result[nm] = nan
+
+        # Epsilon variants (kekulized explicit-H mol, aromatic flags preserved)
+        mol_h = Chem.Mol(self.explicit_hydrogen_mol)
+        Chem.Kekulize(mol_h)
+
+        eps2 = sum(eps) / n
+        eps1 = _eta_eps_mean(mol_h)
+        eps5 = _eta_eps_mean5(mol_h)
+
+        rmol_h = _eta_reference_mol_with_h(mol)
+        eps3 = _eta_eps_mean(rmol_h) if rmol_h is not None else nan
+
+        sat_mol = _eta_saturated_mol(mol)
+        eps4 = _eta_eps_mean(sat_mol) if sat_mol is not None else nan
+
+        result["ETA_epsilon_1"] = eps1
+        result["ETA_epsilon_2"] = eps2
+        result["ETA_epsilon_3"] = eps3
+        result["ETA_epsilon_4"] = eps4
+        result["ETA_epsilon_5"] = eps5
+        result["ETA_dEpsilon_A"] = eps1 - eps3
+        result["ETA_dEpsilon_B"] = eps1 - eps4
+        result["ETA_dEpsilon_C"] = eps3 - eps4
+        result["ETA_dEpsilon_D"] = eps2 - eps5
+
+        psi1 = alpha_total / (n * eps2) if eps2 != 0.0 else nan
+        result["ETA_psi_1"] = psi1
+        result["ETA_dPsi_A"] = max(0.714 - psi1, 0.0) if not math.isnan(psi1) else nan
+        result["ETA_dPsi_B"] = max(psi1 - 0.714, 0.0) if not math.isnan(psi1) else nan
+
+        alpha_total_safe = alpha_total if alpha_total != 0.0 else nan
+        result["ETA_shape_p"] = (
+            sum(alpha[a.GetIdx()] for a in mol.GetAtoms() if a.GetDegree() == 1)
+            / alpha_total_safe
+        )
+        result["ETA_shape_y"] = (
+            sum(alpha[a.GetIdx()] for a in mol.GetAtoms() if a.GetDegree() == 3)
+            / alpha_total_safe
+        )
+        result["ETA_shape_x"] = (
+            sum(alpha[a.GetIdx()] for a in mol.GetAtoms() if a.GetDegree() == 4)
+            / alpha_total_safe
+        )
+
+        return result
+
+    @cached_property
+    def mde_values(self) -> dict[str, float]:
+        """Molecular distance edge descriptors (MDEC-*/MDEN-*/MDEO-*)."""
+        nan = float("nan")
+        D = self.distance_matrix
+        sym_map = {"C": 6, "N": 7, "O": 8}
+
+        # Group heavy atom indices by (element_symbol, heavy-atom degree)
+        by_elem_deg: dict[tuple[str, int], list[int]] = {}
+        for a in self.atoms:
+            key = (a.GetSymbol(), a.GetDegree())
+            by_elem_deg.setdefault(key, []).append(a.GetIdx())
+
+        result: dict[str, float] = {}
+        for name in MDE_DESCRIPTORS:
+            sym = name[3]        # 'C', 'N', or 'O'
+            v1, v2 = int(name[5]), int(name[6])
+            list1 = by_elem_deg.get((sym, v1), [])
+            list2 = by_elem_deg.get((sym, v2), [])
+
+            log_sum = 0.0
+            count = 0
+            if v1 == v2:
+                m = len(list1)
+                for ii in range(m):
+                    for jj in range(ii + 1, m):
+                        log_sum += math.log(float(D[list1[ii], list1[jj]]))
+                        count += 1
+            else:
+                for ii in list1:
+                    for jj in list2:
+                        log_sum += math.log(float(D[ii, jj]))
+                        count += 1
+
+            result[name] = count / math.exp(log_sum / count) if count > 0 else nan
+
+        return result
+
 
 def _average_molecular_weight(ctx: _DescriptorContext) -> float:
     atom_count = ctx.total_atom_count_including_hydrogen
@@ -1161,6 +1352,185 @@ def _ic_atom_code(bonds_dict, atom_info, adj, root, order):
     for _ in range(order):
         _ic_expand_tree(tree, visited, adj)
     return tuple(sorted(_ic_tree_trails(tree, None, (), bonds_dict, atom_info)))
+
+
+# Period numbers 1-indexed by atomic number (Z=1→period 1, Z=118→period 7).
+_ETA_PERIODS: list[int] = (
+    [0] + [1] * 2 + [2] * 8 + [3] * 8 + [4] * 18 + [5] * 18 + [6] * 32 + [7] * 32
+)
+
+
+def _eta_nonsigma_contribution(bond: rdchem.Bond, eps_i: float, eps_j: float) -> float:
+    if bond.GetBondType() is rdchem.BondType.SINGLE:
+        return 0.0
+    f = 2.0 if bond.GetBondTypeAsDouble() == rdchem.BondType.TRIPLE else 1.0
+    if bond.GetIsAromatic():
+        y = 2.0
+    elif abs(eps_i - eps_j) > 0.3:
+        y = 1.5
+    else:
+        y = 1.0
+    return f * y
+
+
+def _eta_build_reference_mol(mol: Chem.Mol) -> Chem.Mol | None:
+    """All heavy atoms → C, all bonds → SINGLE; returns None on failure."""
+    new = Chem.RWMol()
+    ids: dict[int, int] = {}
+    for a in mol.GetAtoms():
+        ids[a.GetIdx()] = new.AddAtom(Chem.Atom(6))
+    for bond in mol.GetBonds():
+        ai_a, aj_a = bond.GetBeginAtom(), bond.GetEndAtom()
+        if ai_a.GetDegree() > 4 or aj_a.GetDegree() > 4:
+            return None
+        new.AddBond(ids[ai_a.GetIdx()], ids[aj_a.GetIdx()], rdchem.BondType.SINGLE)
+    mol_ref = new.GetMol()
+    if Chem.SanitizeMol(mol_ref, catchErrors=True):
+        return None
+    Chem.Kekulize(mol_ref)
+    return mol_ref
+
+
+def _eta_reference_mol_with_h(mol: Chem.Mol) -> Chem.Mol | None:
+    """Reference alkane (all-C/all-SINGLE) with RDKit-assigned H added."""
+    mol_ref = _eta_build_reference_mol(mol)
+    if mol_ref is None:
+        return None
+    mol_ref = Chem.AddHs(mol_ref)
+    Chem.Kekulize(mol_ref)
+    return mol_ref
+
+
+def _eta_saturated_mol(mol: Chem.Mol) -> Chem.Mol | None:
+    """Saturated carbon skeleton: keep original atom types; C-C bonds → SINGLE."""
+    new = Chem.RWMol()
+    ids: dict[int, int] = {}
+    for a in mol.GetAtoms():
+        new_a = Chem.Atom(a.GetAtomicNum())
+        new_a.SetFormalCharge(a.GetFormalCharge())
+        ids[a.GetIdx()] = new.AddAtom(new_a)
+    for bond in mol.GetBonds():
+        ai_a, aj_a = bond.GetBeginAtom(), bond.GetEndAtom()
+        i, j = ids[ai_a.GetIdx()], ids[aj_a.GetIdx()]
+        if ai_a.GetAtomicNum() == 6 and aj_a.GetAtomicNum() == 6:
+            new.AddBond(i, j, rdchem.BondType.SINGLE)
+        else:
+            new.AddBond(i, j, bond.GetBondType())
+    mol_sat = new.GetMol()
+    if Chem.SanitizeMol(mol_sat, catchErrors=True):
+        return None
+    mol_sat = Chem.AddHs(mol_sat)
+    Chem.Kekulize(mol_sat)
+    return mol_sat
+
+
+def _eta_atom_properties(
+    mol: Chem.Mol,
+) -> tuple[list[float], list[float], list[float], list[float], list[float]]:
+    """Return (alpha, eps, beta_sigma, beta_ns, beta_d) per atom for ETA.
+
+    The mol must be kekulized with aromatic flags preserved so that
+    ``GetIsAromatic()`` and ``GetBondType()`` both work correctly.
+    """
+    pt = _PERIODIC_TABLE
+    atoms = list(mol.GetAtoms())
+    n = len(atoms)
+
+    alpha: list[float] = []
+    eps: list[float] = []
+    for a in atoms:
+        Z = a.GetAtomicNum()
+        Zv = pt.GetNOuterElecs(Z)
+        pn = _ETA_PERIODS[Z] if 0 < Z <= 118 else 0
+        al = 0.0 if Z == 1 or pn <= 1 else (Z - Zv) / (Zv * (pn - 1))
+        alpha.append(al)
+        eps.append(0.3 * Zv - al)
+
+    beta_sigma: list[float] = [0.0] * n
+    for i, a in enumerate(atoms):
+        s = 0.0
+        for nb in a.GetNeighbors():
+            if nb.GetAtomicNum() == 1:
+                continue
+            s += 0.5 if abs(eps[i] - eps[nb.GetIdx()]) <= 0.3 else 0.75
+        beta_sigma[i] = s
+
+    beta_ns: list[float] = [0.0] * n
+    for bond in mol.GetBonds():
+        ai, aj = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        if atoms[ai].GetAtomicNum() == 1 or atoms[aj].GetAtomicNum() == 1:
+            continue
+        c = _eta_nonsigma_contribution(bond, eps[ai], eps[aj])
+        beta_ns[ai] += c
+        beta_ns[aj] += c
+
+    beta_d: list[float] = [0.0] * n
+    for i, a in enumerate(atoms):
+        if a.GetIsAromatic() or a.IsInRing():
+            continue
+        if pt.GetNOuterElecs(a.GetAtomicNum()) <= a.GetTotalValence():
+            continue
+        for nb in a.GetNeighbors():
+            if nb.GetAtomicNum() != 1 and nb.GetIsAromatic():
+                beta_d[i] = 0.5
+                break
+
+    return alpha, eps, beta_sigma, beta_ns, beta_d
+
+
+def _eta_composite(gamma: list[float], D: np.ndarray, *, local: bool) -> float:
+    total = 0.0
+    n = len(gamma)
+    for i in range(n):
+        gi = gamma[i]
+        if math.isnan(gi):
+            continue
+        for j in range(i + 1, n):
+            r = float(D[i, j])
+            if local:
+                if r != 1.0:
+                    continue
+            elif r == 0.0:
+                continue
+            gj = gamma[j]
+            if math.isnan(gj):
+                continue
+            total += math.sqrt(gi * gj) / r
+    return total
+
+
+def _eta_eps_mean(mol: Chem.Mol) -> float:
+    """Mean ETA epsilon over all atoms in mol."""
+    pt = _PERIODIC_TABLE
+    total = 0.0
+    count = 0
+    for a in mol.GetAtoms():
+        Z = a.GetAtomicNum()
+        Zv = pt.GetNOuterElecs(Z)
+        pn = _ETA_PERIODS[Z] if 0 < Z <= 118 else 0
+        al = 0.0 if Z == 1 or pn <= 1 else (Z - Zv) / (Zv * (pn - 1))
+        total += 0.3 * Zv - al
+        count += 1
+    return total / count if count > 0 else float("nan")
+
+
+def _eta_eps_mean5(mol_with_h: Chem.Mol) -> float:
+    """Mean ETA epsilon over heavy atoms + H bonded to heteroatoms (type 5)."""
+    pt = _PERIODIC_TABLE
+    total = 0.0
+    count = 0
+    for a in mol_with_h.GetAtoms():
+        Z = a.GetAtomicNum()
+        if Z == 1:
+            nbs = a.GetNeighbors()
+            if nbs and nbs[0].GetAtomicNum() == 6:
+                continue
+        Zv = pt.GetNOuterElecs(Z)
+        pn = _ETA_PERIODS[Z] if 0 < Z <= 118 else 0
+        al = 0.0 if Z == 1 or pn <= 1 else (Z - Zv) / (Zv * (pn - 1))
+        total += 0.3 * Zv - al
+        count += 1
+    return total / count if count > 0 else float("nan")
 
 
 def _compute_detour_matrix(
@@ -1861,6 +2231,21 @@ for _name in SPECTRAL_DESCRIPTORS:
 
 for _name in INFORMATION_CONTENT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _information_content_descriptor(_name)
+
+
+def _eta_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.eta_values[name]
+
+
+def _mde_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.mde_values[name]
+
+
+for _name in ETA_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _eta_descriptor(_name)
+
+for _name in MDE_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _mde_descriptor(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

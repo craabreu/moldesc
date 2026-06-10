@@ -18,11 +18,8 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1516.
+- Supported Mordred-name descriptors: 1580.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 77,956 numeric oracle comparisons
-  (of 98,540 descriptor×molecule cells; the remaining 20,584 are Mordred-missing,
-  accepted as both-NaN or documented RDKit improvements).
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -329,22 +326,66 @@ descriptor that is undefined in both implementations.
     2,730 numeric oracle comparisons (all cells numeric; no NaN from IC family).
     Zero mismatches on the 65-molecule panel.
 
+21. Completed: implement extended topochemical atom (ETA/AETA, 45 descriptors)
+    and molecular distance edge (MDE, 19 descriptors):
+
+    **ETA/AETA (45):** `ETA_alpha`, `AETA_alpha`, `ETA_beta_s/ns_d/ns/beta`,
+    their `AETA_*` averages, `ETA_dBeta`, `ETA_eta/eta_L/eta_R/eta_RL`,
+    their `AETA_*` averages, `ETA_eta_F/FL/B/BR` and averages, `ETA_epsilon_1`–`5`,
+    `ETA_dEpsilon_A–D`, `ETA_dAlpha_A/B`, `ETA_psi_1`, `ETA_dPsi_A/B`,
+    `ETA_shape_p/y/x`.
+
+    Algorithm:
+    - All 45 require a connected molecule (`EtaBase.require_connected = True`);
+      disconnected mols return NaN for all 45.
+    - Per-atom properties on the kekulized heavy-atom mol (aromatic flags
+      preserved via `Chem.Kekulize(mol)`, default `clearAromaticFlags=False`):
+      - `alpha_i = (Z − Zv) / (Zv · (period − 1))` for period > 1, else 0
+      - `eps_i = 0.3 · Zv − alpha_i`
+      - `beta_sigma_i = Σ_{j∈heavy_nbrs} (0.5 if |eps_i−eps_j|≤0.3 else 0.75)`
+      - `beta_ns_i = Σ_{bonds} f·y` where f=2 for triple bonds else 1;
+        y=2 for aromatic, 1.5 if |Δeps|>0.3, else 1.0; f·y=0 for SINGLE bonds
+      - `beta_d_i = 0.5` if non-ring, non-aromatic, with lone pairs, adjacent
+        to aromatic atom; else 0
+      - `gamma_i = alpha_i / (beta_sigma_i + beta_ns_i + beta_d_i)`, NaN if
+        denominator = 0
+    - `ETA_beta_s = Σ beta_sigma_i / 2` (halved to avoid double-counting)
+    - `ETA_beta_ns_d = Σ beta_d_i` (per-atom, no double-counting)
+    - `ETA_beta_ns = Σ (beta_ns_i / 2 + beta_d_i)`
+    - `ETA_beta = ETA_beta_s + ETA_beta_ns`
+    - `ETA_eta = Σ_{i<j, r>0} sqrt(gamma_i · gamma_j) / r` (heavy-atom D)
+    - Reference mol (all-C, all-SINGLE): same topology → same distance matrix;
+      only gamma values change. `ETA_eta_R` uses original D with reference-mol
+      gammas (matching Mordred's `DistanceMatrix(explicit_hydrogens=False)`
+      dependency shared between original and reference `EtaCompositeIndex`).
+    - `ETA_dAlpha_A = max((alpha − alpha_R) / n, 0)`
+    - `ETA_dAlpha_B = max((alpha_R − alpha) / n, 0)`
+    - `ETA_eta_B = eta_NL − eta_RL` where `eta_NL = 1.0` (n=2), or
+      `sqrt(2) + 0.5·(n−3)` (n≥3); NaN for n≤1
+    - `ETA_eta_BR = eta_NL − eta_RL + 0.086 · ring_count`
+    - Epsilon variants:
+      - type 1: mean eps over all atoms with explicit H
+      - type 2: mean eps over heavy atoms only
+      - type 3: mean eps over all atoms in reference mol with H (all-C, all-SINGLE + AddHs)
+      - type 4: mean eps over all atoms in saturated mol (C-C bonds → SINGLE; other bonds kept; + AddHs)
+      - type 5: mean eps over heavy atoms + H bonded to heteroatoms
+    - `ETA_dEpsilon_A = eps1 − eps3`, B: eps1−eps4, C: eps3−eps4, D: eps2−eps5
+    - `ETA_psi_1 = alpha / (n · eps2)`;
+      `ETA_dPsi_A = max(0.714 − psi1, 0)`, `ETA_dPsi_B = max(psi1 − 0.714, 0)`
+    - `ETA_shape_p/y/x = Σ(alpha_i for degree=1/3/4) / alpha_total`
+
+    4,160 oracle cells (65 × 64), zero mismatches.
+
+    **MDE (19):** `MDEC-{v1}{v2}` (10), `MDEN-{v1}{v2}` (6), `MDEO-{v1}{v2}` (3).
+    Algorithm: collect atom-index pairs (i,j) with i<j where both atoms share
+    the same element and matching heavy-atom degrees v1/v2; `n / exp(Σlog(D[i,j]) / n)`,
+    NaN when n=0.
+
 ## Remaining Families (future expansion)
 
-97 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
-They cluster into a few coherent families, in rough priority order:
-
-1. **Extended topochemical atom (~45).** `ETA_*` and the averaged `AETA_*`
-   variants. A large but pure-graph family with its own core/valence-electron
-   accounting; substantial distinct implementation.
-2. **Molecular distance-edge (~16).** `MDEC-*`, `MDEN-*`, `MDEO-*`: per
-   carbon/nitrogen/oxygen bonded-pair distance-edge counts.
-
-All 97 are 2D-computable in principle (they appear in `ignore_3D=True` Mordred
-output). Continue the validated-increment pattern: add the registry group,
-implement RDKit-only helpers, validate every case against the oracle on the
-panel (extending the panel with targeted molecules where a family has
-distinctive behavior), then lock the supported list.
+33 Mordred 2D descriptors remain unsupported (`tests/unsupported_mordred.json`).
+All are 2D-computable in principle. Continue the validated-increment pattern.
+Current unsupported list is in `tests/unsupported_mordred.json`.
 
 ## Implementation Rules
 

@@ -103,6 +103,14 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Topological charge descriptors: `GGI1`–`GGI10` (raw), `JGI1`–`JGI10`
   (mean), and `JGT10` (global), computed from the antisymmetric charge-term
   matrix `CT = A·D⁻² − (A·D⁻²)ᵀ`
+- Extended topochemical atom descriptors: `ETA_alpha`, `AETA_alpha`, `ETA_beta_s/ns_d/ns/beta`
+  (and `AETA_*` averages), `ETA_dBeta`/`AETA_dBeta`, `ETA_eta/eta_L/eta_R/eta_RL` (and averages),
+  `ETA_eta_F/FL/B/BR` (and averages), `ETA_epsilon_1`–`5`, `ETA_dEpsilon_A–D`,
+  `ETA_dAlpha_A/B`, `ETA_psi_1`, `ETA_dPsi_A/B`, `ETA_shape_p/y/x`; all 45 require a
+  connected molecule — disconnected molecules return NaN for all
+- Molecular distance-edge descriptors: `MDEC-11` through `MDEC-44` (10),
+  `MDEN-11` through `MDEN-33` (6), `MDEO-11` through `MDEO-22` (3); NaN when no
+  qualifying atom pairs exist
 - Information content descriptors: `IC0`–`IC5` (neighborhood IC), `TIC*` (total),
   `SIC*` (structural, NaN for single-atom molecules), `BIC*` (bonding, NaN for
   bond-free molecules), `CIC*` (complementary), `MIC*` (mass-weighted), and
