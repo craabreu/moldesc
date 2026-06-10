@@ -72,6 +72,8 @@ Mordred names implemented with explicit RDKit-only helpers:
   `ATSC0Z` through `ATSC8Z`, `AATS0Z` through `AATS2Z`, `AATSC0Z` through
   `AATSC2Z`, `MATS1Z`, `MATS2Z`, `GATS1Z`, and `GATS2Z`
 - Atomic-number BCUT descriptors: `BCUTZ-1h` and `BCUTZ-1l`
+- Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
+  `fMF`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that

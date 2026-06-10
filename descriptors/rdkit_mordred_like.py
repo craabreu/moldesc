@@ -19,6 +19,7 @@ from .mordred_rdkit_registry import (
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
+    SMALL_GRAPH_FORMULA_DESCRIPTORS,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
     WALK_COUNT_DESCRIPTORS,
 )
@@ -226,6 +227,45 @@ class _DescriptorContext:
             for root, atoms in component_atoms.items()
             if component_ring_counts[root] >= 2
         )
+
+    @cached_property
+    def framework_linker_atoms(self) -> set[int]:
+        return self._compute_framework_linker_atoms()
+
+    def _compute_framework_linker_atoms(self) -> set[int]:
+        rings = self.mol.GetRingInfo().AtomRings()
+        if len(rings) < 2:
+            return set()
+
+        atom_to_node: dict[int, tuple[str, int]] = {}
+        ring_nodes: set[tuple[str, int]] = set()
+        for ring_index, ring in enumerate(rings):
+            ring_node = ("R", ring_index)
+            ring_nodes.add(ring_node)
+            for atom_index in ring:
+                atom_to_node[atom_index] = ring_node
+
+        graph: dict[tuple[str, int], set[tuple[str, int]]] = {}
+        for bond in self.bonds:
+            begin_index = bond.GetBeginAtomIdx()
+            end_index = bond.GetEndAtomIdx()
+            begin = atom_to_node.get(begin_index, ("A", begin_index))
+            end = atom_to_node.get(end_index, ("A", end_index))
+            if begin == end:
+                continue
+            graph.setdefault(begin, set()).add(end)
+            graph.setdefault(end, set()).add(begin)
+
+        linkers: set[int] = set()
+        ring_node_list = list(ring_nodes)
+        for left_index, left in enumerate(ring_node_list):
+            for right in ring_node_list[left_index + 1:]:
+                path = _shortest_path(graph, left, right)
+                if path is not None:
+                    linkers.update(
+                        index for node_type, index in path if node_type == "A"
+                    )
+        return linkers
 
     @cached_property
     def implicit_hydrogen_count(self) -> int:
@@ -454,6 +494,80 @@ def _modified_zagreb_index_2(ctx: _DescriptorContext) -> float:
             for bond in ctx.bonds
         )
     )
+
+
+def _shortest_path(
+    graph: dict[tuple[str, int], set[tuple[str, int]]],
+    start: tuple[str, int],
+    end: tuple[str, int],
+) -> tuple[tuple[str, int], ...] | None:
+    queue = [(start, (start,))]
+    seen = {start}
+    for node, path in queue:
+        if node == end:
+            return path
+        for neighbor in graph.get(node, set()):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                queue.append((neighbor, (*path, neighbor)))
+    return None
+
+
+def _atom_bond_connectivity_index(ctx: _DescriptorContext) -> float:
+    valences = ctx.adjacency_valences
+    value = 0.0
+    for bond in ctx.bonds:
+        begin_valence = valences[bond.GetBeginAtomIdx()]
+        end_valence = valences[bond.GetEndAtomIdx()]
+        denominator = begin_valence * end_valence
+        if denominator:
+            value += math.sqrt((begin_valence + end_valence - 2) / denominator)
+    return value
+
+
+def _graovac_ghorbani_index(ctx: _DescriptorContext) -> float:
+    distance_matrix = ctx.distance_matrix
+    value = 0.0
+    for bond in ctx.bonds:
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        begin_count = int(np.sum(distance_matrix[begin, :] < distance_matrix[end, :]))
+        end_count = int(np.sum(distance_matrix[end, :] < distance_matrix[begin, :]))
+        denominator = begin_count * end_count
+        if denominator:
+            value += math.sqrt((begin_count + end_count - 2) / denominator)
+    return value
+
+
+def _eccentric_connectivity_index(ctx: _DescriptorContext) -> int:
+    if ctx.distance_matrix.size == 0:
+        return 0
+    return int(
+        sum(
+            valence * eccentricity
+            for valence, eccentricity in zip(
+                ctx.adjacency_valences,
+                ctx.distance_matrix.max(axis=0),
+                strict=True,
+            )
+        )
+    )
+
+
+def _fragment_complexity(ctx: _DescriptorContext) -> float:
+    atom_count = ctx.mol.GetNumAtoms()
+    bond_count = ctx.mol.GetNumBonds()
+    hetero_atom_count = sum(1 for atom in ctx.atoms if atom.GetAtomicNum() != 6)
+    return abs(bond_count**2 - atom_count**2 + atom_count) + hetero_atom_count / 100
+
+
+def _framework_molecular_fraction(ctx: _DescriptorContext) -> float:
+    atom_count = ctx.total_atom_count_including_hydrogen
+    if atom_count == 0:
+        return float("nan")
+    framework_atoms = set().union(*ctx.ring_atom_sets) if ctx.ring_atom_sets else set()
+    framework_atoms.update(ctx.framework_linker_atoms)
+    return len(framework_atoms) / atom_count
 
 
 def _hydrogen_atom_count(ctx: _DescriptorContext) -> int:
@@ -727,9 +841,12 @@ def _rdkit_descriptor(
 
 
 _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
+    "ABC": _atom_bond_connectivity_index,
+    "ABCGG": _graovac_ghorbani_index,
     "AMW": _average_molecular_weight,
     "BertzCT": _rdkit_descriptor(Descriptors.BertzCT),
     "Diameter": _diameter,
+    "ECIndex": _eccentric_connectivity_index,
     "FCSP3": _rdkit_descriptor(rdMolDescriptors.CalcFractionCSP3),
     "MW": lambda ctx: ctx.exact_molecular_weight,
     "PetitjeanIndex": _petitjean_index,
@@ -749,6 +866,8 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "Xp-1d": _rdkit_descriptor(Descriptors.Chi1),
     "Zagreb1": _zagreb_index_1,
     "Zagreb2": _zagreb_index_2,
+    "fMF": _framework_molecular_fraction,
+    "fragCpx": _fragment_complexity,
     "mZagreb1": _modified_zagreb_index_1,
     "mZagreb2": _modified_zagreb_index_2,
     "nAcid": _smarts_count_descriptor(_ACID_GROUP_SMARTS),
@@ -804,6 +923,11 @@ for _name in AUTOCORRELATION_Z_DESCRIPTORS:
 
 for _name in BCUT_Z_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _bcut_z_descriptor(_name)
+
+for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
+    if _name not in _DESCRIPTOR_FUNCTIONS:
+        msg = f"missing small graph/formula implementation: {_name}"
+        raise RuntimeError(msg)
 
 for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS and hasattr(Descriptors, _name):

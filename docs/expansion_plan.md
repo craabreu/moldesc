@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 396.
+- Supported Mordred-name descriptors: 401.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 25,740.
+- Compatibility-checked panel cases: 26,065.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -135,6 +135,32 @@ descriptor that is undefined in both implementations.
     property-by-property. Keep RDKit `BCUT2D_*` descriptors outside the
     Mordred-name output unless a descriptor-by-descriptor numerical match is
     demonstrated.
+
+13. Completed: add small standalone graph/formula descriptors:
+
+    Added descriptors that need only RDKit atom, bond, ring, and distance data:
+    `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and `fMF`. These are useful
+    non-alias additions that avoid new property-table infrastructure.
+
+14. Next: add simple physical-property table descriptors:
+
+    Candidate descriptors are `apol`, `bpol`, `VMcGowan`, and `Vabc`. Add
+    these only after embedding or deriving explicit RDKit-only atomic constants
+    and validating behavior for atoms outside the supported constant tables.
+
+15. Next: add constitutional property sums and means:
+
+    Candidate descriptors include `SZ`, `MZ`, `Sm`, `Mm`, `Sv`, `Mv`, `Sse`,
+    `Mse`, and related `S*`/`M*` property variants. This should reuse the same
+    property-vector infrastructure needed for non-`Z` autocorrelation and BCUT
+    expansion.
+
+16. Next: add topological charge descriptors:
+
+    Candidate descriptors are `GGI1` through `GGI10`, `JGI1` through `JGI10`,
+    and `JGT10`. These are matrix-based and RDKit-only, but should be added
+    after a focused implementation of the charge-term matrix and distance-lag
+    aggregation.
 
 ## Implementation Rules
 

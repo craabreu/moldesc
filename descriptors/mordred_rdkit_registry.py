@@ -202,6 +202,14 @@ BCUT_Z_DESCRIPTORS: tuple[str, ...] = (
     "BCUTZ-1l",
 )
 
+SMALL_GRAPH_FORMULA_DESCRIPTORS: tuple[str, ...] = (
+    "ABC",
+    "ABCGG",
+    "ECIndex",
+    "fragCpx",
+    "fMF",
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
@@ -218,6 +226,12 @@ MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit atomic-number Burden eigenvalue calculation"
         for name in BCUT_Z_DESCRIPTORS
+    }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit graph formula calculation"
+        for name in SMALL_GRAPH_FORMULA_DESCRIPTORS
     }
 )
 
