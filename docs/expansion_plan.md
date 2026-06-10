@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 429.
+- Supported Mordred-name descriptors: 481.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 27,885.
+- Compatibility-checked panel cases: 31,265.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -123,14 +123,21 @@ descriptor that is undefined in both implementations.
       both-`NaN` cases need no enumeration; the raw `ATS*`/`ATSC*` sums stay
       numeric and are checked against Mordred as usual.
 
-11. Next: implement non-`Z` autocorrelation property vectors:
+11. In progress: implement non-`Z` autocorrelation property vectors:
 
-    Candidate properties include `m`, `v`, `se`, `pe`, `are`, `p`, `i`, `d`,
-    `dv`, `s`, and centered `c` charge variants. Prefer one property family at
-    a time, starting with properties backed by stable RDKit/periodic-table data.
-    Do not add charge or intrinsic-state variants until Gasteiger charge and
-    valence-property behavior is validated on charged and heteroatom-rich panel
-    molecules.
+    - Generalized the atomic-number autocorrelation machinery into a shared
+      property-vector helper (`_autocorrelation_property_values`) so any per-atom
+      property can reuse the validated graph-distance/centering/averaging code.
+    - Completed the mass (`m`) family: `ATS*m`, `ATSC*m`, `AATS*m`, `AATSC*m`
+      (lags 0-8) and `MATS*m`, `GATS*m` (lags 1-8). Mass uses Mordred's standard
+      atomic weights, replicated in `_MASS_BY_ATOMIC_NUM` because RDKit's
+      `GetAtomicWeight` differs beyond tolerance for several elements.
+    - Next properties, one family at a time, backed by stable periodic-table
+      data: `v` (van der Waals volume), `se`/`pe`/`are` (electronegativities),
+      `p` (polarizability), `i` (ionization potential). Defer charge (`c`) and
+      intrinsic-state (`s`, `dv`) variants until Gasteiger charge and
+      valence-property behavior is validated on charged and heteroatom-rich
+      panel molecules.
 
 12. Next: expand remaining Mordred `BCUT*` properties:
 

@@ -15,6 +15,7 @@ from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
 from rdkit.Chem.EState import AtomTypes
 
 from .mordred_rdkit_registry import (
+    AUTOCORRELATION_M_DESCRIPTORS,
     AUTOCORRELATION_Z_DESCRIPTORS,
     BCUT_Z_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
@@ -41,6 +42,9 @@ _PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
 _WALK_COUNT_PATTERN = re.compile(r"^(T)?(?:(M)WC|(SR)W)(\d+)$")
 _AUTOCORRELATION_Z_PATTERN = re.compile(
     r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)Z$"
+)
+_AUTOCORRELATION_M_PATTERN = re.compile(
+    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)m$"
 )
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
 _ACID_GROUP_SMARTS = (
@@ -279,6 +283,121 @@ _MCGOWAN_VOLUME_BY_ATOMIC_NUM = {
     101: 58.06,
     102: 56.81,
     103: 55.56,
+}
+# Standard atomic weights as used by Mordred's mass property. These differ from
+# RDKit's GetAtomicWeight beyond tolerance for several elements (e.g. S, Cl, B),
+# so the values are replicated here rather than read from RDKit.
+_MASS_BY_ATOMIC_NUM = {
+    1: 1.008,
+    2: 4.002602,
+    3: 6.94,
+    4: 9.012182,
+    5: 10.81,
+    6: 12.011,
+    7: 14.007,
+    8: 15.999,
+    9: 18.9984032,
+    10: 20.1797,
+    11: 22.98976928,
+    12: 24.305,
+    13: 26.9815386,
+    14: 28.085,
+    15: 30.973762,
+    16: 32.06,
+    17: 35.45,
+    18: 39.948,
+    19: 39.0983,
+    20: 40.078,
+    21: 44.955912,
+    22: 47.867,
+    23: 50.9415,
+    24: 51.9961,
+    25: 54.938045,
+    26: 55.845,
+    27: 58.933195,
+    28: 58.6934,
+    29: 63.546,
+    30: 65.38,
+    31: 69.723,
+    32: 72.63,
+    33: 74.9216,
+    34: 78.96,
+    35: 79.904,
+    36: 83.798,
+    37: 85.4678,
+    38: 87.62,
+    39: 88.90585,
+    40: 91.224,
+    41: 92.90638,
+    42: 95.96,
+    43: 98.0,
+    44: 101.07,
+    45: 102.9055,
+    46: 106.42,
+    47: 107.8682,
+    48: 112.411,
+    49: 114.818,
+    50: 118.71,
+    51: 121.76,
+    52: 127.6,
+    53: 126.90447,
+    54: 131.293,
+    55: 132.9054519,
+    56: 137.327,
+    57: 138.90547,
+    58: 140.116,
+    59: 140.90765,
+    60: 144.242,
+    61: 145.0,
+    62: 150.36,
+    63: 151.964,
+    64: 157.25,
+    65: 158.92535,
+    66: 162.5,
+    67: 164.93032,
+    68: 167.259,
+    69: 168.93421,
+    70: 173.054,
+    71: 174.9668,
+    72: 178.49,
+    73: 180.94788,
+    74: 183.84,
+    75: 186.207,
+    76: 190.23,
+    77: 192.217,
+    78: 195.084,
+    79: 196.966569,
+    80: 200.59,
+    81: 204.38,
+    82: 207.2,
+    83: 208.9804,
+    84: 210.0,
+    85: 210.0,
+    86: 222.0,
+    87: 223.0,
+    88: 226.0,
+    89: 227.0,
+    90: 232.03806,
+    91: 231.03588,
+    92: 238.02891,
+    93: 237.0,
+    94: 244.0,
+    95: 243.0,
+    96: 247.0,
+    97: 247.0,
+    98: 251.0,
+    99: 252.0,
+    100: 257.0,
+    101: 258.0,
+    102: 259.0,
+    103: 262.0,
+    104: 261.0,
+    105: 262.0,
+    106: 266.0,
+    107: 264.0,
+    108: 269.0,
+    109: 268.0,
+    110: 271.0,
 }
 _BONDI_RADII_BY_ATOMIC_NUM = {
     1: 1.20,
@@ -562,8 +681,27 @@ class _DescriptorContext:
         )
 
     @cached_property
+    def autocorrelation_atomic_masses(self) -> tuple[float, ...]:
+        return tuple(
+            _atomic_property_value(_MASS_BY_ATOMIC_NUM, atom.GetAtomicNum())
+            for atom in self.explicit_hydrogen_mol.GetAtoms()
+        )
+
+    @cached_property
     def autocorrelation_z_values(self) -> dict[str, float]:
-        values = self.autocorrelation_atomic_numbers
+        return self._autocorrelation_property_values(
+            self.autocorrelation_atomic_numbers, "Z"
+        )
+
+    @cached_property
+    def autocorrelation_m_values(self) -> dict[str, float]:
+        return self._autocorrelation_property_values(
+            self.autocorrelation_atomic_masses, "m"
+        )
+
+    def _autocorrelation_property_values(
+        self, values: tuple[float, ...], suffix: str
+    ) -> dict[str, float]:
         centered_values = _center_values(values)
         pairs_by_order = self._autocorrelation_pairs_by_order()
 
@@ -576,17 +714,19 @@ class _DescriptorContext:
             ats = _autocorrelation_order_sum(values, pairs_by_order, order)
             atsc = _autocorrelation_order_sum(centered_values, pairs_by_order, order)
 
-            results[f"ATS{order}Z"] = ats
-            results[f"ATSC{order}Z"] = atsc
+            results[f"ATS{order}{suffix}"] = ats
+            results[f"ATSC{order}{suffix}"] = atsc
 
-            results[f"AATS{order}Z"] = ats / pair_count if pair_count else float("nan")
-            results[f"AATSC{order}Z"] = (
+            results[f"AATS{order}{suffix}"] = (
+                ats / pair_count if pair_count else float("nan")
+            )
+            results[f"AATSC{order}{suffix}"] = (
                 atsc / pair_count if pair_count else float("nan")
             )
 
             if order >= 1:
                 aatsc = atsc / pair_count if pair_count else float("nan")
-                results[f"MATS{order}Z"] = (
+                results[f"MATS{order}{suffix}"] = (
                     atom_count * aatsc / centered_square_sum
                     if centered_square_sum
                     else float("nan")
@@ -597,7 +737,7 @@ class _DescriptorContext:
                     if atom_count > 1
                     else float("nan")
                 )
-                results[f"GATS{order}Z"] = (
+                results[f"GATS{order}{suffix}"] = (
                     _geary_numerator(values, pairs_by_order[order], pair_count)
                     / geary_denominator
                     if geary_denominator and not math.isnan(geary_denominator)
@@ -948,6 +1088,14 @@ def _autocorrelation_z_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.autocorrelation_z_values[name]
 
 
+def _autocorrelation_m_descriptor(name: str) -> DescriptorFunction:
+    if _AUTOCORRELATION_M_PATTERN.match(name) is None:
+        msg = f"unsupported atomic-mass autocorrelation descriptor: {name}"
+        raise ValueError(msg)
+
+    return lambda ctx: ctx.autocorrelation_m_values[name]
+
+
 def _bcut_z_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.bcut_z_values[name]
 
@@ -1276,6 +1424,9 @@ for _name in WALK_COUNT_DESCRIPTORS:
 
 for _name in AUTOCORRELATION_Z_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_z_descriptor(_name)
+
+for _name in AUTOCORRELATION_M_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_m_descriptor(_name)
 
 for _name in BCUT_Z_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _bcut_z_descriptor(_name)

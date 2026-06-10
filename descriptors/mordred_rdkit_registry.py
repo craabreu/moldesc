@@ -197,6 +197,15 @@ AUTOCORRELATION_Z_DESCRIPTORS: tuple[str, ...] = (
     *(f"GATS{i}Z" for i in range(1, 9)),
 )
 
+AUTOCORRELATION_M_DESCRIPTORS: tuple[str, ...] = (
+    *(f"ATS{i}m" for i in range(0, 9)),
+    *(f"ATSC{i}m" for i in range(0, 9)),
+    *(f"AATS{i}m" for i in range(0, 9)),
+    *(f"AATSC{i}m" for i in range(0, 9)),
+    *(f"MATS{i}m" for i in range(1, 9)),
+    *(f"GATS{i}m" for i in range(1, 9)),
+)
+
 BCUT_Z_DESCRIPTORS: tuple[str, ...] = (
     "BCUTZ-1h",
     "BCUTZ-1l",
@@ -227,6 +236,12 @@ MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit atomic-number autocorrelation calculation"
         for name in AUTOCORRELATION_Z_DESCRIPTORS
+    }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit atomic-mass autocorrelation calculation"
+        for name in AUTOCORRELATION_M_DESCRIPTORS
     }
 )
 MORDRED_RDKIT_ALIASES.update(

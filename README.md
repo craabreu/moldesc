@@ -73,6 +73,9 @@ Mordred names implemented with explicit RDKit-only helpers:
   `AATSC8Z`, `MATS1Z` through `MATS8Z`, and `GATS1Z` through `GATS8Z`
   (the averaged/normalized variants return documented `NaN` for molecules
   with no atom pairs at that graph distance)
+- Atomic-mass autocorrelation descriptors: the same `ATS`/`ATSC`/`AATS`/`AATSC`
+  (lags 0-8) and `MATS`/`GATS` (lags 1-8) families weighted by Mordred standard
+  atomic weights, suffixed `m` (e.g. `ATS0m`, `MATS1m`, `GATS8m`)
 - Atomic-number BCUT descriptors: `BCUTZ-1h` and `BCUTZ-1l`
 - Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
   `fMF`
