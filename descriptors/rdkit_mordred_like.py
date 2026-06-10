@@ -902,48 +902,37 @@ def _intrinsic_state(atom: Chem.Atom) -> float:
 def _classify_chi_subgraph(
     bond_endpoints: tuple[tuple[int, int], ...], use_bonds: tuple[int, ...]
 ) -> tuple[str, list[int]]:
-    """Classify a subgraph into Mordred chi type using DFS.
+    """Classify a connected bond-subgraph into its Mordred chi type.
 
     Returns (chi_type, [atom_idx]) where chi_type is one of 'path',
-    'cluster', 'path_cluster', or 'chain', matching Mordred's Chi.py
-    DFS classifier exactly.
+    'cluster', 'path_cluster', or 'chain'. Reproduces Mordred's recursive
+    DFS classifier exactly, but without any traversal:
+
+    ``FindAllSubgraphsOfLengthN`` yields *connected* subgraphs of exactly
+    ``order`` bonds (E == order). A connected graph has a cycle iff
+    E >= V, so the subgraph is a ``chain`` iff its distinct-node count is
+    ``<= order`` (equivalently, it is a tree with ``order + 1`` nodes
+    otherwise). For the tree case the type follows directly from the
+    in-subgraph degree multiset: all degrees <= 2 is a ``path``; a degree-2
+    node alongside a branch point is a ``path_cluster``; otherwise (only
+    terminal and branch nodes, no degree 2) it is a ``cluster``.
     """
-    nbrs: dict[int, list[int]] = {}
+    degree: dict[int, int] = {}
     for bi in use_bonds:
         a, b = bond_endpoints[bi]
-        if a not in nbrs:
-            nbrs[a] = []
-        if b not in nbrs:
-            nbrs[b] = []
-        nbrs[a].append(b)
-        nbrs[b].append(a)
+        degree[a] = degree.get(a, 0) + 1
+        degree[b] = degree.get(b, 0) + 1
 
-    visited: set[int] = set()
-    vis_edges: set[tuple[int, int]] = set()
-    degrees: set[int] = set()
-    is_chain = [False]
+    nodes = list(degree)
+    if len(nodes) <= len(use_bonds):
+        return "chain", nodes
 
-    def _dfs(u: int) -> None:
-        visited.add(u)
-        degrees.add(len(nbrs[u]))
-        for v in nbrs[u]:
-            ek = (v, u) if u > v else (u, v)
-            if v not in visited:
-                vis_edges.add(ek)
-                _dfs(v)
-            elif ek not in vis_edges:
-                vis_edges.add(ek)
-                is_chain[0] = True
-
-    _dfs(next(iter(nbrs)))
-
-    if is_chain[0]:
-        return "chain", list(nbrs)
-    if not (degrees - {1, 2}):
-        return "path", list(nbrs)
+    degrees = set(degree.values())
+    if max(degrees) <= 2:
+        return "path", nodes
     if 2 in degrees:
-        return "path_cluster", list(nbrs)
-    return "cluster", list(nbrs)
+        return "path_cluster", nodes
+    return "cluster", nodes
 
 
 def _atomic_polarizability(ctx: _DescriptorContext) -> float:

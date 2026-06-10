@@ -75,3 +75,24 @@ validation panel is ring-heavy, so cyclic molecules dominate the path
 enumeration and the branch showed no measurable benefit while adding complexity.
 Recorded here so it is not re-attempted without a workload that actually
 warrants it.
+
+### Chi connectivity: classify subgraphs by degree, not by DFS
+
+The Kier-Hall chi family (`Xp-*`/`Xc-*`/`Xch-*`/`Xpc-*`) classifies every
+connected bond-subgraph from `FindAllSubgraphsOfLengthN` as path, cluster,
+path-cluster, or chain. The original port mirrored Mordred's `Chi.py`: build a
+neighbor adjacency dict per subgraph and run a recursive DFS to detect a
+back-edge (chain) and collect the degree set. cProfile showed the DFS plus
+neighbor-dict construction were the dominant cost (~1.5s of the group, with
+~1M recursive `_dfs` calls).
+
+The same distinct-node-count invariant from path counts applies: a subgraph has
+exactly `order` bonds (`E == order`) and is connected, so it contains a cycle
+**iff `E ≥ V`**, i.e. iff its distinct-node count is `≤ order`. That is the chain
+test — no traversal. For the remaining (tree) case, `V == order + 1`, the type
+is fixed by the in-subgraph degree multiset alone: all degrees ≤ 2 → path; a
+degree-2 node present alongside a branch point → path-cluster; only terminal and
+branch nodes (no degree 2) → cluster. So one pass counting bond-endpoint degrees
+replaces the whole DFS. Verified to reproduce Mordred's classifier on all 3601
+panel subgraphs (zero mismatches) before replacing the code. Result: the chi
+group dropped ~33% (1.82s → 1.22s) and the full panel ~10%.
