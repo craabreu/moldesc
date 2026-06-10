@@ -1,4 +1,4 @@
-"""Registry for Mordred-compatible descriptors implemented with RDKit."""
+"""Registry for Mordred-name descriptors implemented with RDKit."""
 
 from __future__ import annotations
 
@@ -188,11 +188,26 @@ WALK_COUNT_DESCRIPTORS: tuple[str, ...] = (
     "TSRW10",
 )
 
+AUTOCORRELATION_Z_DESCRIPTORS: tuple[str, ...] = (
+    *(f"ATS{i}Z" for i in range(0, 9)),
+    *(f"ATSC{i}Z" for i in range(0, 9)),
+    *(f"AATS{i}Z" for i in range(0, 3)),
+    *(f"AATSC{i}Z" for i in range(0, 3)),
+    *(f"MATS{i}Z" for i in range(1, 3)),
+    *(f"GATS{i}Z" for i in range(1, 3)),
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit adjacency walk count calculation" for name in WALK_COUNT_DESCRIPTORS}
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit atomic-number autocorrelation calculation"
+        for name in AUTOCORRELATION_Z_DESCRIPTORS
+    }
 )
 
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (

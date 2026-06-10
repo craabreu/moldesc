@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 366.
+- Supported Mordred-name descriptors: 394.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 23,790.
+- Compatibility-checked panel cases: 25,610.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -91,15 +91,16 @@ descriptor that is undefined in both implementations.
    - Added `RotRatio` and `Xp-0d`; reintroduced methane and `[NH4+]` to the
      validation panel.
 
-8. Next: investigate autocorrelation families separately:
-   - `ATS*`
-   - `AATS*`
-   - `ATSC*`
-   - `AATSC*`
-   - `MATS*`
-   - `GATS*`
-   - These are large families, so add them only after a shared implementation
-     and panel coverage are in place.
+8. Completed: investigate autocorrelation families separately:
+   - Added a shared RDKit-only implementation for atomic-number (`Z`)
+     autocorrelation descriptors using explicit hydrogens and graph distances.
+   - Added `ATS0Z` through `ATS8Z` and `ATSC0Z` through `ATSC8Z`.
+   - Added low-lag averaged and normalized descriptors with no missing cases on
+     the validation panel: `AATS0Z` through `AATS2Z`, `AATSC0Z` through
+     `AATSC2Z`, `MATS1Z`, `MATS2Z`, `GATS1Z`, and `GATS2Z`.
+   - Deferred higher-lag averaged `Z` descriptors and non-`Z` properties because
+     they require broader documented missing-value expectations and property
+     vector validation.
 
 9. Next: investigate BCUT descriptors separately:
    - Mordred `BCUT*` names do not directly match RDKit `BCUT2D_*` names.

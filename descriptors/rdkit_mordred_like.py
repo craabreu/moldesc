@@ -1,4 +1,4 @@
-"""Mordred-compatible 2D descriptors computed with RDKit only."""
+"""Mordred-name 2D descriptors computed with RDKit only."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
 from rdkit.Chem.EState import AtomTypes
 
 from .mordred_rdkit_registry import (
+    AUTOCORRELATION_Z_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
@@ -26,6 +27,9 @@ DescriptorFunction = Callable[["_DescriptorContext"], DescriptorValue]
 _RING_COUNT_PATTERN = re.compile(r"^n(?:(G12|\d+))?(F)?([aA])?(H)?Ring$")
 _PATH_COUNT_PATTERN = re.compile(r"^(T)?(?:(pi)PC|MPC)(\d+)$")
 _WALK_COUNT_PATTERN = re.compile(r"^(T)?(?:(M)WC|(SR)W)(\d+)$")
+_AUTOCORRELATION_Z_PATTERN = re.compile(
+    r"^(AATSC|AATS|ATSC|ATS|MATS|GATS)(\d+)Z$"
+)
 _HALOGEN_ATOMIC_NUMBERS = {9, 17, 35, 53}
 _ACID_GROUP_SMARTS = (
     "[O;H1]-[C,S,P]=O",
@@ -238,6 +242,20 @@ class _DescriptorContext:
         return kekule_mol
 
     @cached_property
+    def explicit_hydrogen_mol(self) -> Chem.Mol:
+        return Chem.AddHs(self.mol)
+
+    @cached_property
+    def autocorrelation_distance_matrix(self):
+        return Chem.GetDistanceMatrix(self.explicit_hydrogen_mol, force=True)
+
+    @cached_property
+    def autocorrelation_atomic_numbers(self) -> tuple[float, ...]:
+        return tuple(
+            float(atom.GetAtomicNum()) for atom in self.explicit_hydrogen_mol.GetAtoms()
+        )
+
+    @cached_property
     def exact_molecular_weight(self) -> float:
         return Descriptors.ExactMolWt(self.mol)
 
@@ -359,6 +377,103 @@ def _rotatable_bond_ratio(ctx: _DescriptorContext) -> float:
     if bond_count == 0:
         return float("nan")
     return rdMolDescriptors.CalcNumRotatableBonds(ctx.mol) / bond_count
+
+
+def _autocorrelation_pair_count(ctx: _DescriptorContext, order: int) -> int:
+    if order == 0:
+        return len(ctx.autocorrelation_atomic_numbers)
+
+    distance_matrix = ctx.autocorrelation_distance_matrix
+    atom_count = len(ctx.autocorrelation_atomic_numbers)
+    return sum(
+        1
+        for i in range(atom_count)
+        for j in range(i + 1, atom_count)
+        if distance_matrix[i, j] == order
+    )
+
+
+def _autocorrelation_values(
+    ctx: _DescriptorContext,
+    *,
+    centered: bool,
+) -> tuple[float, ...]:
+    values = ctx.autocorrelation_atomic_numbers
+    if not centered:
+        return values
+
+    mean = sum(values) / len(values)
+    return tuple(value - mean for value in values)
+
+
+def _autocorrelation_sum(
+    ctx: _DescriptorContext,
+    order: int,
+    *,
+    centered: bool,
+) -> float:
+    values = _autocorrelation_values(ctx, centered=centered)
+    if order == 0:
+        return sum(value * value for value in values)
+
+    distance_matrix = ctx.autocorrelation_distance_matrix
+    return sum(
+        values[i] * values[j]
+        for i in range(len(values))
+        for j in range(i + 1, len(values))
+        if distance_matrix[i, j] == order
+    )
+
+
+def _autocorrelation_z_descriptor(name: str) -> DescriptorFunction:
+    match = _AUTOCORRELATION_Z_PATTERN.match(name)
+    if match is None:
+        msg = f"unsupported atomic-number autocorrelation descriptor: {name}"
+        raise ValueError(msg)
+
+    family, order_text = match.groups()
+    order = int(order_text)
+    centered = family in {"ATSC", "AATSC", "MATS", "GATS"}
+
+    def calc(ctx: _DescriptorContext) -> float:
+        pair_count = _autocorrelation_pair_count(ctx, order)
+        value = _autocorrelation_sum(ctx, order, centered=centered)
+
+        if family in {"ATS", "ATSC"}:
+            return value
+
+        if pair_count == 0:
+            return float("nan")
+
+        averaged = value / pair_count
+        if family in {"AATS", "AATSC"}:
+            return averaged
+
+        centered_values = _autocorrelation_values(ctx, centered=True)
+        centered_square_sum = sum(value * value for value in centered_values)
+        if centered_square_sum == 0:
+            return float("nan")
+
+        if family == "MATS":
+            return len(centered_values) * averaged / centered_square_sum
+
+        if len(centered_values) <= 1:
+            return float("nan")
+
+        distance_matrix = ctx.autocorrelation_distance_matrix
+        atomic_numbers = ctx.autocorrelation_atomic_numbers
+        geary_numerator = sum(
+            (atomic_numbers[i] - atomic_numbers[j]) ** 2
+            for i in range(len(centered_values))
+            for j in range(i + 1, len(centered_values))
+            if distance_matrix[i, j] == order
+        ) / (2 * pair_count)
+        geary_denominator = centered_square_sum / (len(centered_values) - 1)
+        if geary_denominator == 0:
+            return float("nan")
+        return geary_numerator / geary_denominator
+
+    return calc
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -645,13 +760,16 @@ for _name in PATH_COUNT_DESCRIPTORS:
 for _name in WALK_COUNT_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _walk_count_descriptor(_name)
 
+for _name in AUTOCORRELATION_Z_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _autocorrelation_z_descriptor(_name)
+
 for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS and hasattr(Descriptors, _name):
         _DESCRIPTOR_FUNCTIONS[_name] = _rdkit_descriptor(getattr(Descriptors, _name))
 
 
 def calc_rdkit_mordred_like_2d(mol: Chem.Mol) -> dict[str, DescriptorValue]:
-    """Return Mordred-compatible 2D descriptors computed using RDKit only."""
+    """Return Mordred-name 2D descriptors computed using RDKit only."""
 
     if mol is None:
         msg = "mol must be an RDKit Mol, not None"

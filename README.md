@@ -68,6 +68,9 @@ Mordred names implemented with explicit RDKit-only helpers:
   SMARTS definitions with RDKit substructure matching
 - Chi topological indices: `Xp-0d` and `Xp-1d`, implemented as validated RDKit
   `Chi0` and `Chi1` aliases
+- Atomic-number autocorrelation descriptors: `ATS0Z` through `ATS8Z`,
+  `ATSC0Z` through `ATSC8Z`, `AATS0Z` through `AATS2Z`, `AATSC0Z` through
+  `AATSC2Z`, `MATS1Z`, `MATS2Z`, `GATS1Z`, and `GATS2Z`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
