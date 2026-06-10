@@ -27,6 +27,7 @@ from descriptors.mordred_rdkit_registry import (
     PHYSICAL_PROPERTY_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
     SMALL_GRAPH_FORMULA_DESCRIPTORS,
+    SPECTRAL_DESCRIPTORS,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
     WALK_COUNT_DESCRIPTORS,
 )
@@ -50,6 +51,7 @@ _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "constitutional": CONSTITUTIONAL_DESCRIPTORS,
     "topological_charge": TOPOLOGICAL_CHARGE_DESCRIPTORS,
     "chi": CHI_DESCRIPTORS,
+    "spectral": SPECTRAL_DESCRIPTORS,
     "small_graph_formula": SMALL_GRAPH_FORMULA_DESCRIPTORS,
     "physical_properties": PHYSICAL_PROPERTY_DESCRIPTORS,
 }

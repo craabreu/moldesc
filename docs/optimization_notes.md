@@ -90,6 +90,42 @@ with a `0.0` sentinel before the solve — LAPACK raises `LinAlgError` on NaN
 input — and overwritten with NaN after sorting. This lifted the BCUT group from
 ~85k to ~138k descriptors/sec.
 
+### Matrix-spectral: batch every matrix through one eigensolve
+
+The spectral family computes eigenvalue/eigenvector aggregates over 11 matrices
+per molecule — adjacency, distance, detour, and eight Barysz variants. The
+first implementation built and diagonalized each matrix separately; profiling
+ranked it the single most expensive group (2.64s on the panel), with the cost
+split across three Python-level bottlenecks: eight separate Floyd-Warshall
+loops, eleven separate `eigh` dispatches, and per-matrix aggregate extraction.
+
+All three share the BCUT lesson — every matrix for one molecule is the same
+`n×n` shape, so they batch:
+
+- **One batched Floyd-Warshall for the eight Barysz matrices.** They differ only
+  in their edge weights (`C²/(P[i]·P[j]·π_ij)`), not their structure, so
+  `_compute_barysz_matrices` stacks them into a `(k, n, n)` tensor and relaxes
+  all of them against each pivot at once: `w[:, :, p:p+1] + w[:, p:p+1, :]`.
+- **One batched `eigh`.** Adjacency, distance, detour, and the Barysz batch are
+  stacked into a single `(k, n, n)` array and diagonalized in one call;
+  `eigh` returns `(k, n)` ascending eigenvalues and `(k, n, n)` eigenvectors,
+  so the leading pair is always at index `n−1`. (NaN Barysz matrices — atoms
+  outside a property table — are dropped from the batch *before* the solve and
+  filled with NaN directly, since LAPACK rejects NaN input.)
+- **Vectorized aggregates.** SpAbs/SpMax/SpDiam/SpAD/SpMAD/LogEE and VE/VR are
+  computed across the whole batch with array ops; even VR1's per-bond product is
+  a single fancy-indexed `lead[:, ai] * lead[:, aj]` with a masked `np.where`
+  for the "≤ 0 ⇒ NaN" rule. The per-suffix result dict is then filled from
+  `.tolist()` conversions (one C-level conversion per aggregate) rather than
+  extracting ~12·k numpy scalars individually — the same per-element-`float()`
+  cost the autocorrelation pass eliminated.
+
+Verified bit-for-bit identical (max abs diff 0.0) to the per-matrix code across
+the full panel before landing. The group dropped from 2.64s to ~1.43s (−46%).
+The remaining cost is the Barysz bond-weight construction (a scatter assignment
+that does not vectorize cleanly) and the detour-matrix DFS (inherently
+recursive); both were left alone as the simplest code meeting the target.
+
 ### Path counts: "simple path ⟺ N+1 distinct atoms"
 
 `MPC*`/`piPC*` count *self-avoiding* paths and sum their bond-order products.

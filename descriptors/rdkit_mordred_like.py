@@ -751,30 +751,30 @@ class _DescriptorContext:
 
     @cached_property
     def spectral_values(self) -> dict[str, float]:
-        """Matrix-spectral descriptors from A, D, Dt, and Barysz matrices."""
+        """Matrix-spectral descriptors from A, D, Dt, and Barysz matrices.
+
+        Every graph matrix for the molecule is the same ``n×n`` shape, so they
+        are stacked into one ``(k, n, n)`` batch and fed through a single
+        ``eigh`` call (the same amortization the BCUT family uses).  The eight
+        Barysz matrices likewise share one batched Floyd-Warshall, and all
+        spectral aggregates are computed across the batch at once.
+        """
         n = len(self.atoms)
         bond_pairs = self.bond_atom_pairs
         bond_orders = self.bond_orders
         nan = float("nan")
         results: dict[str, float] = {}
 
-        # ── Adjacency matrix (no SM1) ─────────────────────────────────────
-        _fill_spectral(results, "A", self.adjacency_matrix.astype(float),
-                       bond_pairs, n, include_sm1=False)
-
-        # ── Distance matrix (no SM1) ──────────────────────────────────────
-        _fill_spectral(results, "D", self.distance_matrix.astype(float),
-                       bond_pairs, n, include_sm1=False)
+        # Collect every matrix to eigendecompose as (suffix, matrix, include_sm1).
+        specs: list[tuple[str, np.ndarray, bool]] = [
+            ("A", self.adjacency_matrix.astype(float), False),
+            ("D", self.distance_matrix.astype(float), False),
+        ]
 
         # ── Detour matrix (with SM1) ──────────────────────────────────────
         dt = _compute_detour_matrix(n, bond_pairs)
         if dt is not None:
-            _fill_spectral(results, "Dt", dt, bond_pairs, n, include_sm1=True)
-            # SM1_Dt = trace(Dt). For n==1 Mordred returns np.int64(0) which
-            # Python's isinstance check treats as non-numeric → test expects NaN.
-            # For n>=2, trace is always 0.0 (diagonal of the detour matrix is 0).
-            if n == 1:
-                results["SM1_Dt"] = nan
+            specs.append(("Dt", dt, True))
         else:
             # Disconnected molecule: Mordred require_connected=True → Missing.
             results["SM1_Dt"] = nan
@@ -782,7 +782,9 @@ class _DescriptorContext:
                 results[f"{m}_Dt"] = nan
 
         # ── Barysz matrices (8 property variants, each with SM1) ──────────
+        # Build the valid weight matrices and solve them with one batched FW.
         atomic_nums = [a.GetAtomicNum() for a in self.atoms]
+        barysz_jobs: list[tuple[str, np.ndarray, float]] = []
         for prop_code, table, carbon_ref in _BARYSZ_TABLES:
             suffix = f"Dz{prop_code}"
             prop_vals = np.array([table.get(z, nan) for z in atomic_nums])
@@ -791,8 +793,22 @@ class _DescriptorContext:
                 for m in _SPECTRAL_METHODS:
                     results[f"{m}_{suffix}"] = nan
                 continue
-            bz = _compute_barysz_matrix(n, bond_pairs, bond_orders, prop_vals, carbon_ref)
-            _fill_spectral(results, suffix, bz, bond_pairs, n, include_sm1=True)
+            barysz_jobs.append((suffix, prop_vals, carbon_ref))
+
+        if barysz_jobs:
+            barysz_batch = _compute_barysz_matrices(
+                n, bond_pairs, bond_orders, barysz_jobs
+            )
+            for index, (suffix, _, _) in enumerate(barysz_jobs):
+                specs.append((suffix, barysz_batch[index], True))
+
+        _fill_spectral_batch(results, specs, bond_pairs, n)
+
+        # SM1_Dt = trace(Dt). For n==1 Mordred returns np.int64(0), which the
+        # test's isinstance check treats as non-numeric → expects NaN; for n>=2
+        # the detour diagonal is always 0 so the trace is genuinely 0.0.
+        if dt is not None and n == 1:
+            results["SM1_Dt"] = nan
 
         return results
 
@@ -1083,128 +1099,152 @@ def _compute_detour_matrix(
     return np.maximum(D, D.T)
 
 
-def _compute_barysz_matrix(
+def _compute_barysz_matrices(
     n: int,
     bond_pairs: tuple[tuple[int, int], ...],
     bond_orders: tuple[float, ...],
-    prop_vals: np.ndarray,
-    carbon_ref: float,
+    jobs: list[tuple[str, np.ndarray, float]],
 ) -> np.ndarray:
-    """Build the Barysz (Dz) matrix via Floyd-Warshall on weighted bond graph.
+    """Build all Barysz (Dz) matrices in one batched Floyd-Warshall.
 
-    Edge weight = (C²) / (P[i] * P[j] * π_ij) where C is the carbon reference
-    value.  Diagonal = 1 − C/P[i] (filled after shortest-path computation).
+    Each job's edge weight is ``C² / (P[i] · P[j] · π_ij)`` (C = carbon
+    reference) and its diagonal is ``1 − C/P[i]``, filled after the
+    shortest-path relaxation.  The ``k`` matrices share one ``(k, n, n)``
+    relaxation so the per-call numpy overhead is paid once for all properties
+    instead of once each.
     """
-    # Initialise with large sentinel (not inf to avoid issues with NaN minimum)
+    k = len(jobs)
+    # Initialise with a large sentinel (not inf, to keep the additions finite).
     large = 1e15
-    w = np.full((n, n), large, dtype=float)
-    np.fill_diagonal(w, 0.0)
+    w = np.full((k, n, n), large, dtype=float)
+    diag_idx = np.arange(n)
+    w[:, diag_idx, diag_idx] = 0.0
 
-    for (i, j), bo in zip(bond_pairs, bond_orders):
-        edge_w = (carbon_ref * carbon_ref) / (prop_vals[i] * prop_vals[j] * bo)
-        w[i, j] = edge_w
-        w[j, i] = edge_w
+    for slot, (_suffix, prop_vals, carbon_ref) in enumerate(jobs):
+        cc = carbon_ref * carbon_ref
+        for (i, j), bo in zip(bond_pairs, bond_orders):
+            edge_w = cc / (prop_vals[i] * prop_vals[j] * bo)
+            w[slot, i, j] = edge_w
+            w[slot, j, i] = edge_w
 
-    # Floyd-Warshall shortest paths
-    for k in range(n):
-        candidate = w[:, k : k + 1] + w[k : k + 1, :]
+    # Batched Floyd-Warshall: relax all k matrices against pivot k at once.
+    for pivot in range(n):
+        candidate = w[:, :, pivot : pivot + 1] + w[:, pivot : pivot + 1, :]
         np.minimum(w, candidate, out=w)
 
-    # Replace large sentinel with 0 (disconnected pairs in valid molecules won't
-    # occur, but guard against any remaining sentinel values)
+    # Replace any remaining sentinel with 0 (guards against disconnected pairs).
     w[w >= large] = 0.0
 
-    # Fill diagonal with 1 − C/P[i]
-    for i in range(n):
-        w[i, i] = 1.0 - carbon_ref / prop_vals[i]
+    # Fill each matrix's diagonal with 1 − C/P[i].
+    for slot, (_suffix, prop_vals, carbon_ref) in enumerate(jobs):
+        w[slot, diag_idx, diag_idx] = 1.0 - carbon_ref / prop_vals
 
     return w
 
 
-def _fill_spectral(
+def _fill_spectral_batch(
     results: dict[str, float],
-    suffix: str,
-    matrix: np.ndarray,
+    specs: list[tuple[str, np.ndarray, bool]],
     bond_pairs: tuple[tuple[int, int], ...],
     n: int,
-    *,
-    include_sm1: bool,
 ) -> None:
-    """Compute all spectral aggregates from *matrix* into *results*.
+    """Compute every spectral aggregate for a batch of matrices.
 
-    Uses eigh (symmetric matrix, ascending eigenvalues) so the leading
-    eigenvalue is always at index n−1.
+    All matrices share the molecule's ``n`` so they are stacked into one
+    ``(k, n, n)`` array and diagonalized with a single ``eigh`` call (matching
+    the BCUT batching pattern); the per-row aggregates are then vectorized
+    across the batch.  ``eigh`` returns ascending eigenvalues, so the leading
+    eigenvalue/eigenvector is always at index ``n−1``.
     """
-    nan = float("nan")
-
-    if include_sm1:
-        results[f"SM1_{suffix}"] = float(np.trace(matrix))
-
-    try:
-        eigenvalues, eigenvectors = np.linalg.eigh(matrix)
-    except np.linalg.LinAlgError:
-        for m in _SPECTRAL_METHODS:
-            results[f"{m}_{suffix}"] = nan
+    if not specs:
         return
 
-    if np.iscomplexobj(eigenvalues):
-        eigenvalues = eigenvalues.real
-    if np.iscomplexobj(eigenvectors):
-        eigenvectors = eigenvectors.real
+    nan = float("nan")
+    suffixes = [s for s, _, _ in specs]
+    batch = np.stack([m for _, m, _ in specs])
 
-    # eigh returns eigenvalues in ascending order
-    lead_eigvec = eigenvectors[:, -1]  # eigenvector of the largest eigenvalue
-    max_eig = float(eigenvalues[-1])
-    min_eig = float(eigenvalues[0])
+    # SM1 (trace) needs no eigendecomposition; take all traces in one reduction.
+    sm1 = np.trace(batch, axis1=1, axis2=2).tolist()
+    for idx, (suffix, _matrix, include_sm1) in enumerate(specs):
+        if include_sm1:
+            results[f"SM1_{suffix}"] = sm1[idx]
 
-    # SpAbs = Σ|λ|
-    results[f"SpAbs_{suffix}"] = float(np.abs(eigenvalues).sum())
+    try:
+        # eigvals: (k, n) ascending; eigvecs: (k, n, n).
+        eigvals, eigvecs = np.linalg.eigh(batch)
+    except np.linalg.LinAlgError:
+        for suffix in suffixes:
+            for m in _SPECTRAL_METHODS:
+                results[f"{m}_{suffix}"] = nan
+        return
 
-    # SpMax = max λ
-    results[f"SpMax_{suffix}"] = max_eig
+    if np.iscomplexobj(eigvals):
+        eigvals = eigvals.real
+    if np.iscomplexobj(eigvecs):
+        eigvecs = eigvecs.real
 
-    # SpDiam = max λ − min λ
-    results[f"SpDiam_{suffix}"] = max_eig - min_eig
+    max_eig = eigvals[:, -1]            # (k,)
+    min_eig = eigvals[:, 0]             # (k,)
+    sp_abs = np.abs(eigvals).sum(axis=1)
+    mean_eig = eigvals.mean(axis=1)
+    sp_ad = np.abs(eigvals - mean_eig[:, None]).sum(axis=1)
+    sp_diam = max_eig - min_eig
 
-    # SpAD = Σ|λ − mean(λ)|
-    mean_eig = eigenvalues.mean()
-    sp_ad = float(np.abs(eigenvalues - mean_eig).sum())
-    results[f"SpAD_{suffix}"] = sp_ad
+    # LogEE via log-sum-exp, per row: a = max(λ_max, 0).
+    a = np.maximum(max_eig, 0.0)
+    sx = np.exp(eigvals - a[:, None]).sum(axis=1) + np.exp(-a)
+    log_ee = a + np.log(sx)
 
-    # SpMAD = SpAD / N
-    results[f"SpMAD_{suffix}"] = sp_ad / n
-
-    # LogEE = log(Σexp(λ) + 1) via log-sum-exp for numerical stability
-    a = max(max_eig, 0.0)
-    sx = float(np.exp(eigenvalues - a).sum()) + math.exp(-a)
-    results[f"LogEE_{suffix}"] = a + math.log(sx)
-
-    # VE1 = Σ|v_i| (absolute sum of leading eigenvector)
-    ve1 = float(np.abs(lead_eigvec).sum())
-    results[f"VE1_{suffix}"] = ve1
-    results[f"VE2_{suffix}"] = ve1 / n
+    # Leading eigenvector per matrix: (k, n).
+    lead = eigvecs[:, :, -1]
+    ve1 = np.abs(lead).sum(axis=1)
     val_ve3 = 0.1 * n * ve1
-    results[f"VE3_{suffix}"] = math.log(val_ve3) if val_ve3 > 0.0 else nan
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ve3 = np.where(val_ve3 > 0.0, np.log(val_ve3), nan)
 
-    # VR1 = Σ (v_i · v_j)^{−½} over bonds (Randić-like eigenvector index)
-    vr1 = 0.0
-    ok = True
-    for ai, aj in bond_pairs:
-        prod = float(lead_eigvec[ai]) * float(lead_eigvec[aj])
-        if prod <= 0.0:
-            ok = False
-            break
-        vr1 += prod ** -0.5
-
-    if not ok:
-        results[f"VR1_{suffix}"] = nan
-        results[f"VR2_{suffix}"] = nan
-        results[f"VR3_{suffix}"] = nan
+    # VR1 = Σ (v_i · v_j)^{−½} over bonds; NaN if any bond product ≤ 0.
+    if bond_pairs:
+        ai = np.fromiter((p[0] for p in bond_pairs), dtype=int, count=len(bond_pairs))
+        aj = np.fromiter((p[1] for p in bond_pairs), dtype=int, count=len(bond_pairs))
+        prods = lead[:, ai] * lead[:, aj]              # (k, n_bonds)
+        bad = (prods <= 0.0).any(axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            vr1 = np.where(bad, nan, (prods ** -0.5).sum(axis=1))
     else:
-        results[f"VR1_{suffix}"] = vr1
-        results[f"VR2_{suffix}"] = vr1 / n
-        val_vr3 = 0.1 * n * vr1
-        results[f"VR3_{suffix}"] = math.log(val_vr3) if val_vr3 > 0.0 else nan
+        vr1 = np.zeros(len(specs))
+    val_vr3 = 0.1 * n * vr1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        vr3 = np.where(val_vr3 > 0.0, np.log(val_vr3), nan)
+
+    # Convert each aggregate to a Python list once (in C) instead of extracting
+    # ~12·k numpy scalars one at a time — the same lesson as the autocorrelation
+    # pass: per-element float() dominates once the array math is cheap.
+    sp_abs_l = sp_abs.tolist()
+    max_eig_l = max_eig.tolist()
+    sp_diam_l = sp_diam.tolist()
+    sp_ad_l = sp_ad.tolist()
+    sp_mad_l = (sp_ad / n).tolist()
+    log_ee_l = log_ee.tolist()
+    ve1_l = ve1.tolist()
+    ve2_l = (ve1 / n).tolist()
+    ve3_l = ve3.tolist()
+    vr1_l = vr1.tolist()
+    vr2_l = (vr1 / n).tolist()
+    vr3_l = vr3.tolist()
+
+    for idx, suffix in enumerate(suffixes):
+        results[f"SpAbs_{suffix}"] = sp_abs_l[idx]
+        results[f"SpMax_{suffix}"] = max_eig_l[idx]
+        results[f"SpDiam_{suffix}"] = sp_diam_l[idx]
+        results[f"SpAD_{suffix}"] = sp_ad_l[idx]
+        results[f"SpMAD_{suffix}"] = sp_mad_l[idx]
+        results[f"LogEE_{suffix}"] = log_ee_l[idx]
+        results[f"VE1_{suffix}"] = ve1_l[idx]
+        results[f"VE2_{suffix}"] = ve2_l[idx]
+        results[f"VE3_{suffix}"] = ve3_l[idx]
+        results[f"VR1_{suffix}"] = vr1_l[idx]
+        results[f"VR2_{suffix}"] = vr2_l[idx]
+        results[f"VR3_{suffix}"] = vr3_l[idx]
 
 
 def _classify_chi_subgraph(
