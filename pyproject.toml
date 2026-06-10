@@ -13,3 +13,6 @@ dependencies = ["rdkit"]
 where = ["."]
 include = ["descriptors*"]
 
+[tool.setuptools.package-data]
+descriptors = ["atomic_properties.csv"]
+
