@@ -101,17 +101,32 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Topological charge descriptors: `GGI1`–`GGI10` (raw), `JGI1`–`JGI10`
   (mean), and `JGT10` (global), computed from the antisymmetric charge-term
   matrix `CT = A·D⁻² − (A·D⁻²)ᵀ`
+- Matrix-spectral descriptors: `SpAbs_*`, `SpMax_*`, `SpDiam_*`, `SpAD_*`,
+  `SpMAD_*`, `LogEE_*`, `VE1_*`/`VE2_*`/`VE3_*`, `VR1_*`/`VR2_*`/`VR3_*`,
+  and `SM1_*` (where applicable), each computed over four matrix types:
+  - `_A` — unweighted heavy-atom adjacency matrix
+  - `_D` — heavy-atom topological distance matrix (already available from RDKit)
+  - `_Dt` — detour matrix (longest simple paths), computed by DFS from every
+    source atom; undefined for disconnected molecules and single-atom molecules
+    (`SM1_Dt` only, matching Mordred's behavior)
+  - `_DzZ`, `_Dzm`, `_Dzv`, `_Dzse`, `_Dzpe`, `_Dzare`, `_Dzp`, `_Dzi` —
+    Barysz matrices weighted by the eight table-based atomic properties
+    (atomic number, mass, vdW volume, Sanderson/Pauling/Allred-Rocow
+    electronegativities, polarizability, ionization potential); off-diagonal
+    entries are Floyd-Warshall shortest paths with bond weights
+    `C²/(P[i]·P[j]·π_ij)`, diagonal `1 − C/P[i]` (C = carbon reference)
+  - `SM1` is defined only for `_Dt` and `_Dz*` (not `_A` or `_D`, where the
+    diagonal is always zero so the trace is always zero)
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
 `TopoPSA(NO)`. `Vabc` returns documented `NaN` for atoms outside its Bondi
-radius table, such as iodine in the validation panel. Other RDKit-native
-`Kappa*`, `fr_*`, autocorrelation, and `BCUT2D_*` descriptors are
-intentionally excluded from the Mordred-name output unless separately validated.
-RDKit `BCUT2D_*` are not aliases for Mordred `BCUT*` names. Future functional-group expansion should start from Mordred
-descriptor names and targeted counterexamples, not from bulk RDKit `fr_*`
-helpers.
+radius table, such as iodine in the validation panel. RDKit-native `Kappa*`,
+`fr_*`, and `BCUT2D_*` descriptors are intentionally excluded from the
+Mordred-name output unless separately validated. Future functional-group
+expansion should start from Mordred descriptor names and targeted
+counterexamples, not from bulk RDKit `fr_*` helpers.
 
 ## Usage
 

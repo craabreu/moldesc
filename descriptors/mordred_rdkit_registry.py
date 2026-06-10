@@ -335,6 +335,35 @@ MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit Kier-Hall chi connectivity index" for name in CHI_DESCRIPTORS}
 )
 
+# Matrix-spectral descriptors: eigenvalue-derived aggregates from adjacency (A),
+# distance (D), detour (Dt), and Barysz (Dz*) matrices.
+# SM1 (trace) is defined for Dt and all Barysz variants but NOT for A or D,
+# because the A/D diagonals are always zero so the trace is always zero.
+_SPECTRAL_METHODS: tuple[str, ...] = (
+    "SpAbs", "SpMax", "SpDiam", "SpAD", "SpMAD", "LogEE",
+    "VE1", "VE2", "VE3", "VR1", "VR2", "VR3",
+)
+_SPECTRAL_METHODS_WITH_SM1: tuple[str, ...] = _SPECTRAL_METHODS + ("SM1",)
+
+_BARYSZ_PROP_CODES: tuple[str, ...] = ("Z", "m", "v", "se", "pe", "are", "p", "i")
+_BARYSZ_SUFFIXES: tuple[str, ...] = tuple(f"Dz{p}" for p in _BARYSZ_PROP_CODES)
+
+SPECTRAL_DESCRIPTORS: tuple[str, ...] = (
+    # A and D: no SM1
+    *(f"{m}_A" for m in _SPECTRAL_METHODS),
+    *(f"{m}_D" for m in _SPECTRAL_METHODS),
+    # Dt and Dz*: with SM1
+    *(f"{m}_Dt" for m in _SPECTRAL_METHODS_WITH_SM1),
+    *(f"{m}_{s}" for s in _BARYSZ_SUFFIXES for m in _SPECTRAL_METHODS_WITH_SM1),
+)
+
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit matrix-spectral eigenvalue descriptor"
+        for name in SPECTRAL_DESCRIPTORS
+    }
+)
+
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (
     "BertzCT",
     "LabuteASA",
