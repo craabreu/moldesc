@@ -25,6 +25,26 @@ it changes how a value is computed, never what the value is.
    helping on the validation panel, the added branch/complexity is not worth it.
    Keep the simplest code that hits the measured target.
 
+## Architecture
+
+The calculator builds one `_DescriptorContext` per molecule and computes each
+descriptor through a flat `name → function` map. Expensive intermediates
+(distance/adjacency matrices, the explicit-hydrogen molecule, per-property atom
+vectors) are `cached_property` values on that shared context, so work is done
+once per molecule and reused across every family that needs it. Profiling
+confirmed there is no meaningful cross-family redundancy to harvest and no global
+restructuring worth doing: the grouped benchmark *appears* to show redundant
+setup only because it rebuilds a fresh context per group, which the real entry
+point never does.
+
+One consequence of the cached-family design is that **subset evaluation is
+naturally cheap** — touching only one family's descriptors never triggers any
+other family's computation. `calc_rdkit_mordred_like_2d(mol, names=...)` exposes
+this: requesting only the 56 chi descriptors costs ~23% of a full run, because
+autocorrelation, BCUT, walk counts, etc. are simply never accessed. This is the
+right lever for callers that need a handful of descriptors, and it is a thin
+wrapper over the existing dispatch rather than a new code path.
+
 ## Worked examples
 
 ### Autocorrelation: fused per-lag numpy pass
@@ -38,6 +58,26 @@ lag. The Geary numerator uses the identity
 difference matrix. Adding properties now scales with a matrix width, not with
 repeated graph traversals — autocorrelation is the cheapest compute-intensive
 group per descriptor as a result.
+
+Two follow-up passes cut this family a further ~40% (1.51s → 0.91s), once
+profiling showed the molecules are small enough that *Python-level* overhead, not
+the numpy work, dominated:
+
+- **Build the property vectors in one atom walk.** The element-table properties
+  (mass, vdW volume, electronegativities, polarizability, ionization potential)
+  previously re-iterated the molecule once per table. `autocorrelation_property_vectors`
+  now reads atomic numbers once and indexes each table from that list, and it
+  computes the sigma/valence counts a single time and reuses them to derive the
+  intrinsic state (`_intrinsic_state_from`) instead of recomputing both inside it.
+  Vector building dropped ~56% (0.68s → 0.30s).
+- **Precompute descriptor keys; vectorize MATS/GATS.** The per-lag loop formatted
+  ~600 f-string keys and called `float()` per element every molecule, even though
+  the keys depend only on `(family, order, suffix)`. They are now built once into
+  `_AC_KEYS`; each family's row is produced as a single numpy array (MATS/GATS via
+  masked `np.where`, preserving the earlier scalar arithmetic order so values stay
+  bit-for-bit identical) and assigned with one `zip(keys, row.tolist())`. Verified
+  bit-identical to the prior output across the full panel (65 molecules × 624
+  descriptors) before landing.
 
 ### BCUT: one batched eigensolve instead of twelve
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from functools import cached_property
 import csv
 import math
@@ -113,6 +113,22 @@ _BONDI_RADII_BY_ATOMIC_NUM = _ATOMIC_PROPERTY_TABLES["bondi_radius"]
 _VABC_ATOM_CONTRIBUTION_BY_ATOMIC_NUM = {
     atomic_num: 4.0 / 3.0 * math.pi * radius**3
     for atomic_num, radius in _BONDI_RADII_BY_ATOMIC_NUM.items()
+}
+
+# Canonical autocorrelation property-suffix order. The property matrix rows and
+# the precomputed descriptor keys are both driven by this tuple so they cannot
+# drift apart.
+_AC_SUFFIXES: tuple[str, ...] = (
+    "Z", "m", "v", "se", "pe", "are", "p", "i", "d", "dv", "s", "c",
+)
+# Descriptor names depend only on (family, order, suffix), never on the molecule,
+# so build them once instead of formatting ~600 f-strings per molecule.
+_AC_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
+    family: tuple(
+        tuple(f"{family}{order}{suffix}" for suffix in _AC_SUFFIXES)
+        for order in range(9)
+    )
+    for family in ("ATS", "ATSC", "AATS", "AATSC", "MATS", "GATS")
 }
 
 
@@ -334,14 +350,6 @@ class _DescriptorContext:
     def autocorrelation_distance_matrix(self):
         return Chem.GetDistanceMatrix(self.explicit_hydrogen_mol, force=True)
 
-    def _element_property_vector(
-        self, table: dict[int, float]
-    ) -> tuple[float, ...]:
-        return tuple(
-            _atomic_property_value(table, atom.GetAtomicNum())
-            for atom in self.explicit_hydrogen_mol.GetAtoms()
-        )
-
     @cached_property
     def gasteiger_charges(self) -> tuple[float, ...]:
         # ComputeGasteigerCharges annotates atoms in place, so work on a copy to
@@ -354,21 +362,38 @@ class _DescriptorContext:
 
     @cached_property
     def autocorrelation_property_vectors(self) -> dict[str, tuple[float, ...]]:
-        """Per-atom property vectors keyed by Mordred property suffix."""
+        """Per-atom property vectors keyed by Mordred property suffix.
+
+        The atom list is walked once: atomic numbers feed every element-table
+        property via a dict lookup (instead of re-iterating the molecule per
+        table), and the sigma/valence counts are computed a single time and
+        reused to derive the intrinsic state.
+        """
 
         atoms = list(self.explicit_hydrogen_mol.GetAtoms())
+        atomic_nums = [atom.GetAtomicNum() for atom in atoms]
+        sigma = [_sigma_electron_count(atom) for atom in atoms]
+        valence = [_valence_electron_count(atom) for atom in atoms]
+
+        def from_table(table: dict[int, float]) -> tuple[float, ...]:
+            nan = float("nan")
+            return tuple(table.get(z, nan) for z in atomic_nums)
+
         return {
-            "Z": tuple(float(atom.GetAtomicNum()) for atom in atoms),
-            "m": self._element_property_vector(_MASS_BY_ATOMIC_NUM),
-            "v": self._element_property_vector(_VDW_VOLUME_BY_ATOMIC_NUM),
-            "se": self._element_property_vector(_SANDERSON_EN_BY_ATOMIC_NUM),
-            "pe": self._element_property_vector(_PAULING_EN_BY_ATOMIC_NUM),
-            "are": self._element_property_vector(_ALLRED_ROCOW_EN_BY_ATOMIC_NUM),
-            "p": self._element_property_vector(_POLARIZABILITY_94_BY_ATOMIC_NUM),
-            "i": self._element_property_vector(_IONIZATION_POTENTIAL_BY_ATOMIC_NUM),
-            "d": tuple(float(_sigma_electron_count(atom)) for atom in atoms),
-            "dv": tuple(_valence_electron_count(atom) for atom in atoms),
-            "s": tuple(_intrinsic_state(atom) for atom in atoms),
+            "Z": tuple(float(z) for z in atomic_nums),
+            "m": from_table(_MASS_BY_ATOMIC_NUM),
+            "v": from_table(_VDW_VOLUME_BY_ATOMIC_NUM),
+            "se": from_table(_SANDERSON_EN_BY_ATOMIC_NUM),
+            "pe": from_table(_PAULING_EN_BY_ATOMIC_NUM),
+            "are": from_table(_ALLRED_ROCOW_EN_BY_ATOMIC_NUM),
+            "p": from_table(_POLARIZABILITY_94_BY_ATOMIC_NUM),
+            "i": from_table(_IONIZATION_POTENTIAL_BY_ATOMIC_NUM),
+            "d": tuple(float(s) for s in sigma),
+            "dv": tuple(valence),
+            "s": tuple(
+                _intrinsic_state_from(z, s, v)
+                for z, s, v in zip(atomic_nums, sigma, valence)
+            ),
             "c": self.gasteiger_charges,
         }
 
@@ -382,15 +407,22 @@ class _DescriptorContext:
         """
 
         vectors = self.autocorrelation_property_vectors
-        suffixes = tuple(vectors)
-        property_matrix = np.array([vectors[s] for s in suffixes], dtype=float)
+        property_matrix = np.array([vectors[s] for s in _AC_SUFFIXES], dtype=float)
         atom_count = property_matrix.shape[1]
 
         centered_matrix = property_matrix - property_matrix.mean(axis=1, keepdims=True)
         centered_square_sums = (centered_matrix**2).sum(axis=1)
         distance_matrix = np.asarray(self.autocorrelation_distance_matrix)
 
+        nan = float("nan")
+        property_count = len(_AC_SUFFIXES)
+        nan_row = [nan] * property_count
+        zero_css_mask = centered_square_sums == 0
+
         results: dict[str, float] = {}
+        # Each family's per-suffix values are produced as one numpy row, then
+        # zipped against precomputed keys; the arithmetic order matches the
+        # earlier scalar code exactly so values are bit-for-bit identical.
         for order in range(0, 9):
             if order == 0:
                 pair_count = atom_count
@@ -404,51 +436,59 @@ class _DescriptorContext:
                 atsc = 0.5 * ((centered_matrix @ adjacency) * centered_matrix).sum(axis=1)
                 degrees = adjacency.sum(axis=1)
 
-            for index, suffix in enumerate(suffixes):
-                results[f"ATS{order}{suffix}"] = float(ats[index])
-                results[f"ATSC{order}{suffix}"] = float(atsc[index])
-                results[f"AATS{order}{suffix}"] = (
-                    float(ats[index] / pair_count) if pair_count else float("nan")
-                )
-                results[f"AATSC{order}{suffix}"] = (
-                    float(atsc[index] / pair_count) if pair_count else float("nan")
-                )
+            if pair_count:
+                aats = (ats / pair_count).tolist()
+                aatsc_row = atsc / pair_count
+                aatsc = aatsc_row.tolist()
+            else:
+                aats = nan_row
+                aatsc = nan_row
+
+            for key, value in zip(_AC_KEYS["ATS"][order], ats.tolist()):
+                results[key] = value
+            for key, value in zip(_AC_KEYS["ATSC"][order], atsc.tolist()):
+                results[key] = value
+            for key, value in zip(_AC_KEYS["AATS"][order], aats):
+                results[key] = value
+            for key, value in zip(_AC_KEYS["AATSC"][order], aatsc):
+                results[key] = value
 
             if order == 0:
                 continue
 
-            # Geary numerator, vectorized across properties. With B the
+            # MATS and GATS, vectorized across properties. With B the
             # adjacency-at-distance matrix and w a property vector,
             #   sum_ij B_ij (w_i - w_j)^2 = 2 (w^2 . deg) - 2 (w^T B w)
-            # and w^T B w = 2 * ATS, so the doubly-counted sum is
-            #   2 (w^2 . deg) - 4 * ATS, which Mordred divides by 4 * pair_count.
-            weighted_degree = (property_matrix**2) @ degrees
-            geary_numerators = (
-                (2.0 * weighted_degree - 4.0 * ats) / (4.0 * pair_count)
-                if pair_count
-                else None
-            )
-
-            for index, suffix in enumerate(suffixes):
-                centered_square_sum = centered_square_sums[index]
-                aatsc = atsc[index] / pair_count if pair_count else float("nan")
-                results[f"MATS{order}{suffix}"] = (
-                    float(atom_count * aatsc / centered_square_sum)
-                    if centered_square_sum
-                    else float("nan")
-                )
-
-                geary_denominator = (
-                    centered_square_sum / (atom_count - 1)
-                    if atom_count > 1
-                    else float("nan")
-                )
-                if pair_count and geary_denominator and not math.isnan(geary_denominator):
-                    results[f"GATS{order}{suffix}"] = float(
-                        geary_numerators[index] / geary_denominator
+            # and w^T B w = 2 * ATS, so the Geary numerator is
+            #   2 (w^2 . deg) - 4 * ATS, divided by 4 * pair_count.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                if pair_count:
+                    mats_row = np.where(
+                        zero_css_mask,
+                        nan,
+                        atom_count * aatsc_row / centered_square_sums,
                     )
                 else:
-                    results[f"GATS{order}{suffix}"] = float("nan")
+                    mats_row = np.full(property_count, nan)
+
+                if pair_count and atom_count > 1:
+                    weighted_degree = (property_matrix**2) @ degrees
+                    geary_numerators = (
+                        2.0 * weighted_degree - 4.0 * ats
+                    ) / (4.0 * pair_count)
+                    geary_denominators = centered_square_sums / (atom_count - 1)
+                    gats_row = np.where(
+                        zero_css_mask,
+                        nan,
+                        geary_numerators / geary_denominators,
+                    )
+                else:
+                    gats_row = np.full(property_count, nan)
+
+            for key, value in zip(_AC_KEYS["MATS"][order], mats_row.tolist()):
+                results[key] = value
+            for key, value in zip(_AC_KEYS["GATS"][order], gats_row.tolist()):
+                results[key] = value
 
         return results
 
@@ -888,15 +928,23 @@ def _valence_electron_count(atom: Chem.Atom) -> float:
     return (outer - hydrogens) / (core - outer - 1)
 
 
+def _intrinsic_state_from(atomic_num: int, sigma: float, valence: float) -> float:
+    """Electrotopological intrinsic state from precomputed sigma/valence counts."""
+
+    if sigma == 0:
+        return float("nan")
+    period = _PERIOD_BY_ATOMIC_NUM.get(atomic_num, float("nan"))
+    return ((2.0 / period) ** 2 * valence + 1) / sigma
+
+
 def _intrinsic_state(atom: Chem.Atom) -> float:
     """Electrotopological intrinsic state (Mordred ``s`` property)."""
 
-    sigma = _sigma_electron_count(atom)
-    if sigma == 0:
-        return float("nan")
-    period = _PERIOD_BY_ATOMIC_NUM.get(atom.GetAtomicNum(), float("nan"))
-    valence = _valence_electron_count(atom)
-    return ((2.0 / period) ** 2 * valence + 1) / sigma
+    return _intrinsic_state_from(
+        atom.GetAtomicNum(),
+        _sigma_electron_count(atom),
+        _valence_electron_count(atom),
+    )
 
 
 def _classify_chi_subgraph(
@@ -1381,15 +1429,31 @@ for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:
         _DESCRIPTOR_FUNCTIONS[_name] = _rdkit_descriptor(getattr(Descriptors, _name))
 
 
-def calc_rdkit_mordred_like_2d(mol: Chem.Mol) -> dict[str, DescriptorValue]:
-    """Return Mordred-name 2D descriptors computed using RDKit only."""
+def calc_rdkit_mordred_like_2d(
+    mol: Chem.Mol,
+    names: Iterable[str] | None = None,
+) -> dict[str, DescriptorValue]:
+    """Return Mordred-name 2D descriptors computed using RDKit only.
+
+    By default every supported descriptor is computed. Pass ``names`` to
+    compute only a subset; because each descriptor family is a separately
+    cached calculation on the shared per-molecule context, requesting a
+    subset skips the work of any family no requested descriptor touches.
+    The returned dict preserves the requested order.
+    """
 
     if mol is None:
         msg = "mol must be an RDKit Mol, not None"
         raise ValueError(msg)
 
+    if names is None:
+        requested: tuple[str, ...] = SUPPORTED_MORDRED_2D_DESCRIPTORS
+    else:
+        requested = tuple(names)
+        unknown = [name for name in requested if name not in _DESCRIPTOR_FUNCTIONS]
+        if unknown:
+            msg = f"unsupported descriptor name(s): {sorted(set(unknown))}"
+            raise KeyError(msg)
+
     context = _DescriptorContext(mol)
-    return {
-        name: _DESCRIPTOR_FUNCTIONS[name](context)
-        for name in SUPPORTED_MORDRED_2D_DESCRIPTORS
-    }
+    return {name: _DESCRIPTOR_FUNCTIONS[name](context) for name in requested}

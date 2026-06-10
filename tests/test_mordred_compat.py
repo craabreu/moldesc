@@ -90,6 +90,42 @@ def test_calculator_rejects_none():
         calc_rdkit_mordred_like_2d(None)
 
 
+def test_calculator_names_subset_matches_full_run():
+    mol = Chem.MolFromSmiles("c1ccc2ccccc2c1")
+    full = calc_rdkit_mordred_like_2d(mol)
+    requested = ["Xp-2d", "ATS0Z", "MW", "nFRing"]
+    subset = calc_rdkit_mordred_like_2d(mol, names=requested)
+    assert list(subset) == requested
+    for name in requested:
+        assert subset[name] == full[name]
+
+
+def test_calculator_rejects_unknown_names():
+    mol = Chem.MolFromSmiles("CCO")
+    with pytest.raises(KeyError, match="unsupported descriptor name"):
+        calc_rdkit_mordred_like_2d(mol, names=["MW", "not_a_descriptor"])
+
+
+def test_calculator_names_subset_skips_unrelated_families(monkeypatch):
+    # Requesting only chi descriptors must not trigger the autocorrelation
+    # family computation, proving subset evaluation is demand-driven.
+    context_cls = rdkit_mordred_like._DescriptorContext
+    original = context_cls.autocorrelation_values.func
+    calls = {"n": 0}
+
+    def spy(self):
+        calls["n"] += 1
+        return original(self)
+
+    # A plain property is enough to observe access without the cached_property
+    # __set_name__ binding; caching is irrelevant when the expected count is 0.
+    monkeypatch.setattr(context_cls, "autocorrelation_values", property(spy))
+
+    mol = Chem.MolFromSmiles("CCO")
+    calc_rdkit_mordred_like_2d(mol, names=["Xp-2d", "Xp-3d"])
+    assert calls["n"] == 0
+
+
 def test_calculator_reuses_expensive_context_values(monkeypatch):
     counts = {
         "distance": 0,

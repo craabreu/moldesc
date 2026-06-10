@@ -123,6 +123,14 @@ mol = Chem.MolFromSmiles("CCO")
 values = calc_rdkit_mordred_like_2d(mol)
 ```
 
+Pass `names` to compute only a subset. Because each descriptor family is a
+separately cached calculation on the shared per-molecule context, requesting a
+subset skips the work of any family no requested descriptor touches:
+
+```python
+subset = calc_rdkit_mordred_like_2d(mol, names=["MW", "Xp-2d", "ATS0Z"])
+```
+
 ## Tests
 
 Run:
