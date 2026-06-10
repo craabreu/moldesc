@@ -74,15 +74,18 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Atomic-number BCUT descriptors: `BCUTZ-1h` and `BCUTZ-1l`
 - Small graph/formula descriptors: `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and
   `fMF`
+- Physical-property table descriptors: `apol`, `bpol`, `VMcGowan`, and `Vabc`
 
 `BalabanJ` is intentionally not included. RDKit and Mordred values did not
 match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
-`TopoPSA(NO)`. Other RDKit-native `Chi*`, `Kappa*`, `fr_*`, autocorrelation,
-and `BCUT2D_*` descriptors are intentionally excluded from the Mordred-name
-output unless separately validated. Future functional-group expansion should
-start from Mordred descriptor names and targeted counterexamples, not from bulk
-RDKit `fr_*` helpers.
+`TopoPSA(NO)`. `Vabc` returns documented `NaN` for atoms outside its Bondi
+radius table, such as iodine in the validation panel. Other RDKit-native
+`Chi*`, `Kappa*`, `fr_*`, autocorrelation, and `BCUT2D_*` descriptors are
+intentionally excluded from the Mordred-name output unless separately
+validated. Future functional-group expansion should start from Mordred
+descriptor names and targeted counterexamples, not from bulk RDKit `fr_*`
+helpers.
 
 ## Usage
 

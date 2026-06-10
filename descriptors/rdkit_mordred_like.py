@@ -18,6 +18,7 @@ from .mordred_rdkit_registry import (
     BCUT_Z_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
+    PHYSICAL_PROPERTY_DESCRIPTORS,
     RING_COUNT_DESCRIPTORS,
     SMALL_GRAPH_FORMULA_DESCRIPTORS,
     SUPPORTED_MORDRED_2D_DESCRIPTORS,
@@ -59,6 +60,236 @@ _ATOM_SYMBOLS_BY_DESCRIPTOR = {
     "nCl": "Cl",
     "nBr": "Br",
     "nI": "I",
+}
+_POLARIZABILITY_94_BY_ATOMIC_NUM = {
+    1: 0.666793,
+    2: 0.2050522,
+    3: 24.33,
+    4: 5.6,
+    5: 3.03,
+    6: 1.67,
+    7: 1.1,
+    8: 0.802,
+    9: 0.557,
+    10: 0.39432,
+    11: 24.11,
+    12: 10.6,
+    13: 6.8,
+    14: 5.53,
+    15: 3.63,
+    16: 2.9,
+    17: 2.18,
+    18: 1.6411,
+    19: 43.06,
+    20: 22.8,
+    21: 17.8,
+    22: 14.6,
+    23: 12.4,
+    24: 11.6,
+    25: 9.4,
+    26: 8.4,
+    27: 7.5,
+    28: 6.8,
+    29: 6.2,
+    30: 5.75,
+    31: 8.12,
+    32: 5.84,
+    33: 4.31,
+    34: 3.77,
+    35: 3.05,
+    36: 2.4844,
+    37: 47.24,
+    38: 23.5,
+    39: 22.7,
+    40: 17.9,
+    41: 15.7,
+    42: 12.8,
+    43: 11.4,
+    44: 9.6,
+    45: 8.6,
+    46: 4.8,
+    47: 6.78,
+    48: 7.36,
+    49: 10.2,
+    50: 7.84,
+    51: 6.6,
+    52: 5.5,
+    53: 5.35,
+    54: 4.044,
+    55: 59.42,
+    56: 39.7,
+    57: 31.1,
+    58: 29.6,
+    59: 28.2,
+    60: 31.4,
+    61: 30.1,
+    62: 28.8,
+    63: 27.7,
+    64: 23.5,
+    65: 25.5,
+    66: 24.5,
+    67: 23.6,
+    68: 22.7,
+    69: 21.8,
+    70: 20.9,
+    71: 21.9,
+    72: 16.2,
+    73: 13.1,
+    74: 11.1,
+    75: 9.7,
+    76: 8.5,
+    77: 7.6,
+    78: 6.5,
+    79: 5.8,
+    80: 5.02,
+    81: 7.6,
+    82: 7.01,
+    83: 7.4,
+    84: 6.8,
+    85: 6.0,
+    86: 5.3,
+    87: 48.6,
+    88: 38.3,
+    89: 32.1,
+    90: 32.1,
+    91: 25.4,
+    92: 24.9,
+    93: 24.8,
+    94: 24.5,
+    95: 23.3,
+    96: 23.0,
+    97: 22.7,
+    98: 20.5,
+    99: 19.7,
+    100: 23.8,
+    101: 18.2,
+    102: 16.4,
+    112: 4.06,
+    114: 4.59,
+}
+_MCGOWAN_VOLUME_BY_ATOMIC_NUM = {
+    1: 8.71,
+    2: 6.75,
+    3: 22.23,
+    4: 20.27,
+    5: 18.31,
+    6: 16.35,
+    7: 14.39,
+    8: 12.43,
+    9: 10.47,
+    10: 8.51,
+    11: 32.71,
+    12: 30.75,
+    13: 28.79,
+    14: 26.83,
+    15: 24.87,
+    16: 22.91,
+    17: 20.95,
+    18: 18.99,
+    19: 51.89,
+    20: 50.28,
+    21: 48.68,
+    22: 47.07,
+    23: 45.47,
+    24: 43.86,
+    25: 42.26,
+    26: 40.65,
+    27: 39.05,
+    28: 37.44,
+    29: 35.84,
+    30: 34.23,
+    31: 32.63,
+    32: 31.02,
+    33: 29.42,
+    34: 27.81,
+    35: 26.21,
+    36: 24.6,
+    37: 60.22,
+    38: 58.61,
+    39: 57.01,
+    40: 55.4,
+    41: 53.8,
+    42: 52.19,
+    43: 50.59,
+    44: 48.98,
+    45: 47.38,
+    46: 45.77,
+    47: 44.17,
+    48: 42.56,
+    49: 40.96,
+    50: 39.35,
+    51: 37.75,
+    52: 36.14,
+    53: 34.54,
+    54: 32.93,
+    55: 77.25,
+    56: 76.0,
+    57: 74.75,
+    58: 73.49,
+    59: 72.24,
+    60: 70.99,
+    61: 69.74,
+    62: 68.49,
+    63: 67.23,
+    64: 65.98,
+    65: 64.73,
+    66: 63.48,
+    67: 62.23,
+    68: 60.97,
+    69: 59.72,
+    70: 58.47,
+    71: 57.22,
+    72: 55.97,
+    73: 54.71,
+    74: 53.46,
+    75: 52.21,
+    76: 50.96,
+    77: 49.71,
+    78: 48.45,
+    79: 47.2,
+    80: 45.95,
+    81: 44.7,
+    82: 43.45,
+    83: 42.19,
+    84: 40.94,
+    85: 39.69,
+    86: 38.44,
+    87: 75.59,
+    88: 74.34,
+    89: 73.09,
+    90: 71.83,
+    91: 70.58,
+    92: 69.33,
+    93: 68.08,
+    94: 66.83,
+    95: 65.57,
+    96: 64.32,
+    97: 63.07,
+    98: 61.82,
+    99: 60.57,
+    100: 59.31,
+    101: 58.06,
+    102: 56.81,
+    103: 55.56,
+}
+_BONDI_RADII_BY_ATOMIC_NUM = {
+    1: 1.20,
+    5: 2.13,
+    6: 1.70,
+    7: 1.55,
+    8: 1.52,
+    9: 1.47,
+    14: 2.10,
+    15: 1.80,
+    16: 1.80,
+    17: 1.75,
+    33: 1.85,
+    34: 1.90,
+    35: 1.85,
+}
+_VABC_ATOM_CONTRIBUTION_BY_ATOMIC_NUM = {
+    atomic_num: 4.0 / 3.0 * math.pi * radius**3
+    for atomic_num, radius in _BONDI_RADII_BY_ATOMIC_NUM.items()
 }
 
 
@@ -570,6 +801,56 @@ def _framework_molecular_fraction(ctx: _DescriptorContext) -> float:
     return len(framework_atoms) / atom_count
 
 
+def _atomic_property_value(table: dict[int, float], atomic_num: int) -> float:
+    return table.get(atomic_num, float("nan"))
+
+
+def _atomic_polarizability(ctx: _DescriptorContext) -> float:
+    return sum(
+        _atomic_property_value(_POLARIZABILITY_94_BY_ATOMIC_NUM, atom.GetAtomicNum())
+        for atom in ctx.explicit_hydrogen_mol.GetAtoms()
+    )
+
+
+def _bond_polarizability(ctx: _DescriptorContext) -> float:
+    value = 0.0
+    for bond in ctx.explicit_hydrogen_mol.GetBonds():
+        begin = bond.GetBeginAtom().GetAtomicNum()
+        end = bond.GetEndAtom().GetAtomicNum()
+        begin_pol = _atomic_property_value(_POLARIZABILITY_94_BY_ATOMIC_NUM, begin)
+        end_pol = _atomic_property_value(_POLARIZABILITY_94_BY_ATOMIC_NUM, end)
+        value += abs(begin_pol - end_pol)
+    return value
+
+
+def _mcgowan_volume(ctx: _DescriptorContext) -> float:
+    mol = ctx.explicit_hydrogen_mol
+    atom_sum = sum(
+        _atomic_property_value(_MCGOWAN_VOLUME_BY_ATOMIC_NUM, atom.GetAtomicNum())
+        for atom in mol.GetAtoms()
+    )
+    return atom_sum - mol.GetNumBonds() * 6.56
+
+
+def _vabc_volume(ctx: _DescriptorContext) -> float:
+    mol = ctx.explicit_hydrogen_mol
+    atom_contribution = sum(
+        _atomic_property_value(
+            _VABC_ATOM_CONTRIBUTION_BY_ATOMIC_NUM,
+            atom.GetAtomicNum(),
+        )
+        for atom in mol.GetAtoms()
+    )
+    aromatic_ring_count = _ring_count_descriptor("naRing")(ctx)
+    aliphatic_ring_count = _ring_count_descriptor("nARing")(ctx)
+    return (
+        atom_contribution
+        - 5.92 * mol.GetNumBonds()
+        - 14.7 * aromatic_ring_count
+        - 3.8 * aliphatic_ring_count
+    )
+
+
 def _hydrogen_atom_count(ctx: _DescriptorContext) -> int:
     return sum(
         1 if atom.GetAtomicNum() == 1 else atom.GetTotalNumHs()
@@ -860,12 +1141,16 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     ),
     "TopoPSA(NO)": _rdkit_descriptor(rdMolDescriptors.CalcTPSA),
     "TopoShapeIndex": _topological_shape_index,
+    "VMcGowan": _mcgowan_volume,
+    "Vabc": _vabc_volume,
     "WPath": _wiener_path_index,
     "WPol": _wiener_polarity_index,
     "Xp-0d": _rdkit_descriptor(Descriptors.Chi0),
     "Xp-1d": _rdkit_descriptor(Descriptors.Chi1),
     "Zagreb1": _zagreb_index_1,
     "Zagreb2": _zagreb_index_2,
+    "apol": _atomic_polarizability,
+    "bpol": _bond_polarizability,
     "fMF": _framework_molecular_fraction,
     "fragCpx": _fragment_complexity,
     "mZagreb1": _modified_zagreb_index_1,
@@ -927,6 +1212,11 @@ for _name in BCUT_Z_DESCRIPTORS:
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:
         msg = f"missing small graph/formula implementation: {_name}"
+        raise RuntimeError(msg)
+
+for _name in PHYSICAL_PROPERTY_DESCRIPTORS:
+    if _name not in _DESCRIPTOR_FUNCTIONS:
+        msg = f"missing physical-property implementation: {_name}"
         raise RuntimeError(msg)
 
 for _name in SUPPORTED_MORDRED_2D_DESCRIPTORS:

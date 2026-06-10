@@ -18,9 +18,9 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 401.
+- Supported Mordred-name descriptors: 405.
 - Validation molecules: 65.
-- Compatibility-checked panel cases: 26,065.
+- Compatibility-checked panel cases: 26,325.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
   compatibility and must remain unsupported.
 - `[NH4+]` and methane are included in the validation panel to lock documented
@@ -142,11 +142,12 @@ descriptor that is undefined in both implementations.
     `ABC`, `ABCGG`, `ECIndex`, `fragCpx`, and `fMF`. These are useful
     non-alias additions that avoid new property-table infrastructure.
 
-14. Next: add simple physical-property table descriptors:
+14. Completed: add simple physical-property table descriptors:
 
-    Candidate descriptors are `apol`, `bpol`, `VMcGowan`, and `Vabc`. Add
-    these only after embedding or deriving explicit RDKit-only atomic constants
-    and validating behavior for atoms outside the supported constant tables.
+    Added `apol`, `bpol`, `VMcGowan`, and `Vabc` using explicit RDKit-only
+    atomic constants and explicit-hydrogen molecules to match Mordred behavior.
+    `Vabc` returns documented `NaN` for atoms outside its Bondi radius table,
+    such as iodine in the validation panel.
 
 15. Next: add constitutional property sums and means:
 

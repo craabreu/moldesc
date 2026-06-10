@@ -210,6 +210,13 @@ SMALL_GRAPH_FORMULA_DESCRIPTORS: tuple[str, ...] = (
     "fMF",
 )
 
+PHYSICAL_PROPERTY_DESCRIPTORS: tuple[str, ...] = (
+    "VMcGowan",
+    "Vabc",
+    "apol",
+    "bpol",
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
@@ -232,6 +239,12 @@ MORDRED_RDKIT_ALIASES.update(
     {
         name: "RDKit graph formula calculation"
         for name in SMALL_GRAPH_FORMULA_DESCRIPTORS
+    }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {
+        name: "RDKit explicit-hydrogen physical property calculation"
+        for name in PHYSICAL_PROPERTY_DESCRIPTORS
     }
 )
 

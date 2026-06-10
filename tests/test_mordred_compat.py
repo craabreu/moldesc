@@ -30,6 +30,7 @@ EXPECTED_MORDRED_MISSING_VALUES = {
     ("methane", "TopoShapeIndex"): "nan",
     ("methane", "Xp-0d"): "numeric",
     ("methane", "mZagreb1"): "nan",
+    ("tetrahalo_methane", "Vabc"): "nan",
 }
 
 
