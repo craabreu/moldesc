@@ -18,7 +18,7 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1042.
+- Supported Mordred-name descriptors: 1096.
 - Validation molecules: 65.
 - Compatibility-checked panel cases: 63,895.
 - Exact-name RDKit/Mordred overlap is exhausted except `BalabanJ`, which fails
@@ -202,26 +202,39 @@ descriptor that is undefined in both implementations.
     sum), not NaN — matching Mordred's `np.abs([]).sum() == 0` behavior. Zero
     mismatches on the full validation panel.
 
-17. Next: expand the Mordred connectivity-index (Xp-*/Xc-*/Xch-*/Xpc-*) family:
+17. Completed: implement the full Mordred connectivity-index (Xp-*/Xc-*/Xch-*/Xpc-*/AXp-*) family:
 
-    Mordred has 42 X* descriptors; only `Xp-0d` and `Xp-1d` are currently
-    supported. Investigation findings:
+    Added all 56 Kier-Hall chi descriptors via a clean-room port of Mordred's
+    `Chi.py`. Zero mismatches on the full validation panel.
 
-    - `Xp-0dv` → RDKit `Chi0v` and `Xp-1dv` → RDKit `Chi1v` are confirmed
-      exact matches and can be added as two-line aliases immediately.
-    - `Xp-2d` through `Xp-7d` (and `v` variants), plus the `Xc-*` (cluster),
-      `Xch-*` (chain), and `Xpc-*` (path-cluster) sub-families (38 descriptors
-      total) have no RDKit built-in equivalent.
-    - `descriptastorus` (v2.7.0.4) only wraps RDKit's native Chi0–Chi4 and adds
-      nothing beyond what RDKit already provides.
-    - No other installable Python package provides the complete Kier-Hall family.
-    - Mordred's own `Chi.py` (~120 lines, RDKit + stdlib only) implements the
-      full family via `FindAllSubgraphsOfLengthN` + a short DFS classifier.
-      A clean-room port is the only viable path to the remaining 38 descriptors.
-    - `Kier1/2/3` (Mordred) ≠ RDKit `Kappa1/2/3` except on pure alkanes;
-      these remain permanently excluded (confirmed by step 6 investigation).
-    - Mordred also exposes averaged variants `AXp-0d` through `AXp-7dv` (+16
-      descriptors) which could be added alongside the path-index port.
+    Algorithm:
+    - `FindAllSubgraphsOfLengthN(mol, order)` enumerates connected subgraphs.
+    - Each subgraph is classified by DFS: a back-edge detected during traversal
+      marks it as `chain`; otherwise degrees determine `path` (all ≤ 2),
+      `path_cluster` (has 2 and ≥ 3), or `cluster` (only ≤ 1 and ≥ 3).
+    - For each subgraph of the relevant type, compute `Σ prod(P[node])^{-0.5}`.
+    - Property `d`: sigma electrons = heavy-atom neighbor count (`_sigma_electron_count`).
+    - Property `dv`: Kier-Hall valence electrons = `(Zv − h) / (Z − Zv − 1)`,
+      formal-charge-adjusted, already implemented as `_valence_electron_count`.
+    - Returns NaN when any node's property ≤ 0 (matches Mordred's fail-on-zero-product rule).
+    - Averaged (`AXp-*`) returns NaN when subgraph count = 0 (matches Mordred's
+      `ZeroDivisionError → Missing` policy).
+
+    RDKit's built-in `Chi0v` / `Chi1v` were NOT used as aliases because they
+    apply a slightly different valence formula that diverges from Mordred on
+    charged atoms (e.g. nitro groups, quaternary ammonium, carboxylates).
+    All `Xp-*` / `AXp-*` descriptors are computed uniformly via `chi_values`.
+
+    Prior `Xp-0d` and `Xp-1d` aliases to RDKit `Chi0` / `Chi1` were replaced
+    by the same `chi_values` path; the two `EXPECTED_RDKIT_IMPROVEMENTS` entries
+    for ammonium/methane were removed (now both return NaN, matching Mordred).
+
+    Descriptors added (+54 vs prior state):
+    - `Xp-0dv`..`Xp-7dv`, `Xp-2d`..`Xp-7d` (14 new path variants)
+    - `AXp-0d`..`AXp-7d`, `AXp-0dv`..`AXp-7dv` (16 averaged path)
+    - `Xc-3d`..`Xc-6d`, `Xc-3dv`..`Xc-6dv` (8 cluster)
+    - `Xch-3d`..`Xch-7d`, `Xch-3dv`..`Xch-7dv` (10 chain)
+    - `Xpc-4d`..`Xpc-6d`, `Xpc-4dv`..`Xpc-6dv` (6 path-cluster)
 
 ## Implementation Rules
 

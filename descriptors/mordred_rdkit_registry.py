@@ -44,8 +44,6 @@ MORDRED_RDKIT_ALIASES: dict[str, str] = {
     "nAcid": "Mordred AcidicGroupCount SMARTS",
     "nBase": "Mordred BasicGroupCount SMARTS",
     "RotRatio": "CalcNumRotatableBonds / heavy bond count",
-    "Xp-0d": "Chi0",
-    "Xp-1d": "Chi1",
 }
 
 ESTATE_ATOM_TYPE_DESCRIPTORS: tuple[str, ...] = (
@@ -272,6 +270,24 @@ TOPOLOGICAL_CHARGE_DESCRIPTORS: tuple[str, ...] = (
     "JGT10",
 )
 
+# Kier-Hall chi connectivity indices (Mordred Chi.py).
+# All types use sigma-electrons (d) and valence-electrons (dv) weighting.
+# Path (Xp-*): orders 0-7, plus averaged variants (AXp-*).
+# Cluster (Xc-*): orders 3-6.  Chain (Xch-*): orders 3-7.
+# Path-cluster (Xpc-*): orders 4-6.
+CHI_DESCRIPTORS: tuple[str, ...] = (
+    *(f"Xp-{i}d" for i in range(8)),
+    *(f"Xp-{i}dv" for i in range(8)),
+    *(f"AXp-{i}d" for i in range(8)),
+    *(f"AXp-{i}dv" for i in range(8)),
+    *(f"Xc-{i}d" for i in range(3, 7)),
+    *(f"Xc-{i}dv" for i in range(3, 7)),
+    *(f"Xch-{i}d" for i in range(3, 8)),
+    *(f"Xch-{i}dv" for i in range(3, 8)),
+    *(f"Xpc-{i}d" for i in range(4, 7)),
+    *(f"Xpc-{i}dv" for i in range(4, 7)),
+)
+
 MORDRED_RDKIT_ALIASES.update(
     {name: "RDKit path count calculation" for name in PATH_COUNT_DESCRIPTORS}
 )
@@ -314,6 +330,9 @@ MORDRED_RDKIT_ALIASES.update(
         name: "RDKit charge-term matrix topological charge calculation"
         for name in TOPOLOGICAL_CHARGE_DESCRIPTORS
     }
+)
+MORDRED_RDKIT_ALIASES.update(
+    {name: "RDKit Kier-Hall chi connectivity index" for name in CHI_DESCRIPTORS}
 )
 
 EXACT_NAME_RDKIT_DESCRIPTORS: tuple[str, ...] = (

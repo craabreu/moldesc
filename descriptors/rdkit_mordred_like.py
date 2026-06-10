@@ -19,6 +19,7 @@ from rdkit.Chem.EState import AtomTypes
 from .mordred_rdkit_registry import (
     AUTOCORRELATION_DESCRIPTORS,
     BCUT_DESCRIPTORS,
+    CHI_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
     PATH_COUNT_DESCRIPTORS,
     CONSTITUTIONAL_DESCRIPTORS,
@@ -577,6 +578,105 @@ class _DescriptorContext:
         return results
 
     @cached_property
+    def chi_values(self) -> dict[str, float]:
+        """Kier-Hall chi connectivity indices (Mordred Xp-*/Xc-*/Xch-*/Xpc-*/AXp-*)."""
+        mol = self.mol
+        atoms = list(mol.GetAtoms())
+        n = len(atoms)
+
+        d_vals = [float(_sigma_electron_count(a)) for a in atoms]
+        dv_vals = [_valence_electron_count(a) for a in atoms]
+        bond_pairs = self.bond_atom_pairs
+
+        results: dict[str, float] = {}
+
+        # Order 0: each heavy atom is its own singleton "path"
+        for pname, vals in (("d", d_vals), ("dv", dv_vals)):
+            has_bad = any(math.isnan(v) or v <= 0 for v in vals)
+            s = float("nan") if has_bad else sum(v ** -0.5 for v in vals)
+            results[f"Xp-0{pname}"] = s
+            results[f"AXp-0{pname}"] = float("nan") if math.isnan(s) or n == 0 else s / n
+
+        # Order 1: each bond is a 2-node "path"
+        cnt1 = len(bond_pairs)
+        for pname, vals in (("d", d_vals), ("dv", dv_vals)):
+            s = 0.0
+            has_bad = False
+            for a, b in bond_pairs:
+                va, vb = vals[a], vals[b]
+                if math.isnan(va) or va <= 0 or math.isnan(vb) or vb <= 0:
+                    has_bad = True
+                else:
+                    s += (va * vb) ** -0.5
+            val = float("nan") if has_bad else s
+            results[f"Xp-1{pname}"] = val
+            results[f"AXp-1{pname}"] = (
+                float("nan") if math.isnan(val) or cnt1 == 0 else val / cnt1
+            )
+
+        # Orders 2-7: enumerate connected subgraphs, classify each by DFS
+        _type_ranges: dict[str, range] = {
+            "path": range(2, 8),
+            "cluster": range(3, 7),
+            "path_cluster": range(4, 7),
+            "chain": range(3, 8),
+        }
+        _type_prefix: dict[str, str] = {
+            "path": "Xp",
+            "cluster": "Xc",
+            "path_cluster": "Xpc",
+            "chain": "Xch",
+        }
+
+        sums: dict[tuple[str, int, str], float] = {}
+        nan_flag: dict[tuple[str, int, str], bool] = {}
+        counts: dict[tuple[str, int], int] = {}
+        for chi_type, rng in _type_ranges.items():
+            for order in rng:
+                counts[(chi_type, order)] = 0
+                for pname in ("d", "dv"):
+                    sums[(chi_type, order, pname)] = 0.0
+                    nan_flag[(chi_type, order, pname)] = False
+
+        for order in range(2, 8):
+            for use_bonds in Chem.FindAllSubgraphsOfLengthN(mol, order):
+                chi_type, nodes = _classify_chi_subgraph(bond_pairs, use_bonds)
+                k = (chi_type, order)
+                if k not in counts:
+                    continue
+                counts[k] += 1
+                for pname, vals in (("d", d_vals), ("dv", dv_vals)):
+                    key = (chi_type, order, pname)
+                    if nan_flag[key]:
+                        continue
+                    c = 1.0
+                    bad = False
+                    for node in nodes:
+                        v = vals[node]
+                        if math.isnan(v) or v <= 0:
+                            bad = True
+                            break
+                        c *= v
+                    if bad:
+                        nan_flag[key] = True
+                    else:
+                        sums[key] += c ** -0.5
+
+        for chi_type, prefix in _type_prefix.items():
+            for order in _type_ranges[chi_type]:
+                k = (chi_type, order)
+                cnt = counts[k]
+                for pname in ("d", "dv"):
+                    key = (chi_type, order, pname)
+                    val = float("nan") if nan_flag[key] else sums[key]
+                    results[f"{prefix}-{order}{pname}"] = val
+                    if chi_type == "path":
+                        avg = float("nan") if math.isnan(val) or cnt == 0 else val / cnt
+                        results[f"AXp-{order}{pname}"] = avg
+
+        return results
+
+    @cached_property
     def exact_molecular_weight(self) -> float:
         return Descriptors.ExactMolWt(self.mol)
 
@@ -799,6 +899,53 @@ def _intrinsic_state(atom: Chem.Atom) -> float:
     return ((2.0 / period) ** 2 * valence + 1) / sigma
 
 
+def _classify_chi_subgraph(
+    bond_endpoints: tuple[tuple[int, int], ...], use_bonds: tuple[int, ...]
+) -> tuple[str, list[int]]:
+    """Classify a subgraph into Mordred chi type using DFS.
+
+    Returns (chi_type, [atom_idx]) where chi_type is one of 'path',
+    'cluster', 'path_cluster', or 'chain', matching Mordred's Chi.py
+    DFS classifier exactly.
+    """
+    nbrs: dict[int, list[int]] = {}
+    for bi in use_bonds:
+        a, b = bond_endpoints[bi]
+        if a not in nbrs:
+            nbrs[a] = []
+        if b not in nbrs:
+            nbrs[b] = []
+        nbrs[a].append(b)
+        nbrs[b].append(a)
+
+    visited: set[int] = set()
+    vis_edges: set[tuple[int, int]] = set()
+    degrees: set[int] = set()
+    is_chain = [False]
+
+    def _dfs(u: int) -> None:
+        visited.add(u)
+        degrees.add(len(nbrs[u]))
+        for v in nbrs[u]:
+            ek = (v, u) if u > v else (u, v)
+            if v not in visited:
+                vis_edges.add(ek)
+                _dfs(v)
+            elif ek not in vis_edges:
+                vis_edges.add(ek)
+                is_chain[0] = True
+
+    _dfs(next(iter(nbrs)))
+
+    if is_chain[0]:
+        return "chain", list(nbrs)
+    if not (degrees - {1, 2}):
+        return "path", list(nbrs)
+    if 2 in degrees:
+        return "path_cluster", list(nbrs)
+    return "cluster", list(nbrs)
+
+
 def _atomic_polarizability(ctx: _DescriptorContext) -> float:
     return sum(
         _atomic_property_value(_POLARIZABILITY_94_BY_ATOMIC_NUM, atom.GetAtomicNum())
@@ -889,6 +1036,10 @@ def _constitutional_descriptor(name: str) -> DescriptorFunction:
 
 def _topological_charge_descriptor(name: str) -> DescriptorFunction:
     return lambda ctx: ctx.topological_charge_values[name]
+
+
+def _chi_descriptor(name: str) -> DescriptorFunction:
+    return lambda ctx: ctx.chi_values[name]
 
 
 def _atom_count_by_symbol(symbol: str) -> DescriptorFunction:
@@ -1155,8 +1306,6 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "Vabc": _vabc_volume,
     "WPath": _wiener_path_index,
     "WPol": _wiener_polarity_index,
-    "Xp-0d": _rdkit_descriptor(Descriptors.Chi0),
-    "Xp-1d": _rdkit_descriptor(Descriptors.Chi1),
     "Zagreb1": _zagreb_index_1,
     "Zagreb2": _zagreb_index_2,
     "apol": _atomic_polarizability,
@@ -1224,6 +1373,9 @@ for _name in CONSTITUTIONAL_DESCRIPTORS:
 
 for _name in TOPOLOGICAL_CHARGE_DESCRIPTORS:
     _DESCRIPTOR_FUNCTIONS[_name] = _topological_charge_descriptor(_name)
+
+for _name in CHI_DESCRIPTORS:
+    _DESCRIPTOR_FUNCTIONS[_name] = _chi_descriptor(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

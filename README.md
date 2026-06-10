@@ -66,8 +66,15 @@ Mordred names implemented with explicit RDKit-only helpers:
   `NaaN`, `NddsN`, `NsSH`, `NssS`, `NsF`, `NsCl`, `NsBr`, and `NsI`
 - Acid/base group counts: `nAcid` and `nBase`, implemented from the Mordred
   SMARTS definitions with RDKit substructure matching
-- Chi topological indices: `Xp-0d` and `Xp-1d`, implemented as validated RDKit
-  `Chi0` and `Chi1` aliases
+- Chi connectivity indices: the full Kier-Hall family ported from Mordred's `Chi.py`
+  — path (`Xp-0d` through `Xp-7dv`), averaged path (`AXp-0d` through `AXp-7dv`),
+  cluster (`Xc-3d` through `Xc-6dv`), chain (`Xch-3d` through `Xch-7dv`), and
+  path-cluster (`Xpc-4d` through `Xpc-6dv`) sub-families, each weighted by sigma
+  electrons (`d`) or valence electrons (`dv`); all values computed via
+  `FindAllSubgraphsOfLengthN` + a DFS subgraph classifier; returns NaN when any
+  participating atom has property ≤ 0 (matching Mordred behavior), and NaN for
+  averaged variants when no subgraphs exist (matching Mordred's zero-division
+  policy)
 - Autocorrelation descriptors: the Moreau-Broto (`ATS`/`AATS`, lags 0-8),
   centered (`ATSC`/`AATSC`, lags 0-8), Moran (`MATS`, lags 1-8) and Geary
   (`GATS`, lags 1-8) families, each weighted by an atomic property and suffixed
@@ -100,7 +107,7 @@ match on the validation panel. RDKit `TPSA` is also not included under that
 name because Mordred exposes the compatible descriptors as `TopoPSA` and
 `TopoPSA(NO)`. `Vabc` returns documented `NaN` for atoms outside its Bondi
 radius table, such as iodine in the validation panel. Other RDKit-native
-`Chi*`, `Kappa*`, `fr_*`, autocorrelation, and `BCUT2D_*` descriptors are
+`Kappa*`, `fr_*`, autocorrelation, and `BCUT2D_*` descriptors are
 intentionally excluded from the Mordred-name output unless separately validated.
 RDKit `BCUT2D_*` are not aliases for Mordred `BCUT*` names. Future functional-group expansion should start from Mordred
 descriptor names and targeted counterexamples, not from bulk RDKit `fr_*`

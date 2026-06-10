@@ -24,12 +24,7 @@ REL_TOL = 1e-6
 # Mordred-missing cases that must be documented: when Mordred is missing and RDKit
 # is also NaN, both implementations agree the descriptor is undefined and there is
 # no oracle value to check, so those cases are accepted without enumeration.
-EXPECTED_RDKIT_IMPROVEMENTS = frozenset(
-    {
-        ("ammonium", "Xp-0d"),
-        ("methane", "Xp-0d"),
-    }
-)
+EXPECTED_RDKIT_IMPROVEMENTS: frozenset[tuple[str, str]] = frozenset()
 
 
 def _load_validation_molecules():
