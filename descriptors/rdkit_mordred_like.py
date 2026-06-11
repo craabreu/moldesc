@@ -201,17 +201,6 @@ class _DescriptorContext:
         return tuple(bond.GetBondTypeAsDouble() for bond in self.bonds)
 
     @cached_property
-    def atomic_numbers(self) -> tuple[int, ...]:
-        # Heavy-atom atomic numbers; shared by every per-atom property-table lookup
-        # (bcut, etc.) so the molecule is iterated once instead of per table.
-        return tuple(atom.GetAtomicNum() for atom in self.atoms)
-
-    @cached_property
-    def explicit_hydrogen_atomic_numbers(self) -> tuple[int, ...]:
-        # Atomic numbers over the explicit-H molecule (autocorrelation, constitutional).
-        return tuple(atom.GetAtomicNum() for atom in self.explicit_hydrogen_mol.GetAtoms())
-
-    @cached_property
     def sigma_electron_counts(self) -> tuple[int, ...]:
         # Mordred ``d`` per heavy-atom; each call iterates GetNeighbors(), so cache
         # once and share across chi, bcut, and intrinsic-state consumers.
@@ -445,7 +434,7 @@ class _DescriptorContext:
         """
 
         atoms = list(self.explicit_hydrogen_mol.GetAtoms())
-        atomic_nums = self.explicit_hydrogen_atomic_numbers
+        atomic_nums = [atom.GetAtomicNum() for atom in atoms]
         sigma = [_sigma_electron_count(atom) for atom in atoms]
         valence = [_valence_electron_count(atom) for atom in atoms]
 
@@ -595,19 +584,19 @@ class _DescriptorContext:
 
     @cached_property
     def bcut_values(self) -> dict[str, float]:
-        n = len(self.atoms)
-        znums = self.atomic_numbers
+        atoms = self.atoms
+        n = len(atoms)
         props = ("Z", "m", "v", "se", "pe", "are", "p", "i", "d", "dv", "s", "c")
         diag_matrix = np.array(
             [
-                [float(z) for z in znums],
-                [_MASS_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
-                [_VDW_VOLUME_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
-                [_SANDERSON_EN_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
-                [_PAULING_EN_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
-                [_ALLRED_ROCOW_EN_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
-                [_POLARIZABILITY_94_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
-                [_IONIZATION_POTENTIAL_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [float(a.GetAtomicNum()) for a in atoms],
+                [_MASS_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_VDW_VOLUME_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_SANDERSON_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_PAULING_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_ALLRED_ROCOW_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_POLARIZABILITY_94_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
+                [_IONIZATION_POTENTIAL_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
                 [float(s) for s in self.sigma_electron_counts],
                 list(self.valence_electron_counts),
                 list(self.intrinsic_states),
@@ -640,8 +629,8 @@ class _DescriptorContext:
     @cached_property
     def constitutional_values(self) -> dict[str, float]:
         """Constitutional sums S_p = Σ(p_i/p_C) and means M_p = S_p/A over explicit-H atoms."""
-        znums = self.explicit_hydrogen_atomic_numbers
-        n = len(znums)
+        atoms = list(self.explicit_hydrogen_mol.GetAtoms())
+        n = len(atoms)
         carbon = 6
         prop_funs: list[tuple[str, dict[int, float]]] = [
             ("Z",   {z: float(z) for z in range(1, 119)}),
@@ -656,7 +645,7 @@ class _DescriptorContext:
         results: dict[str, float] = {}
         for suffix, table in prop_funs:
             carbon_val = table[carbon]
-            vals = [table.get(z, float("nan")) / carbon_val for z in znums]
+            vals = [table.get(a.GetAtomicNum(), float("nan")) / carbon_val for a in atoms]
             s = sum(vals) if not any(math.isnan(v) for v in vals) else float("nan")
             results[f"S{suffix}"] = s
             results[f"M{suffix}"] = s / n if not math.isnan(s) else float("nan")
