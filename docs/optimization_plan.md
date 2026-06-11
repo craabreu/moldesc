@@ -327,6 +327,38 @@ so the grouping step compares ints not nested tuples. Confirm with `cProfile` th
 the sort/compare actually dominates before attempting — it may already be at a
 reasonable floor.
 
+### Per-atom primitives: cache on the context to cut redundant RDKit iteration
+
+A full-calc cProfile bucketed by source file showed the time split as ~60% our
+Python, ~18% RDKit's *Python* sequence wrappers (`__next__`/`_getRDKitItem`/
+`__len__` from re-iterating `mol.GetAtoms()` and `atom.GetNeighbors()`), ~16% C
+extensions, ~4% numpy. The wrapper share is the part an "extract once" refactor can
+attack.
+
+The dominant redundancy was `_sigma_electron_count` and `_valence_electron_count`:
+each iterates `atom.GetNeighbors()`, and both were recomputed per atom in three
+heavy-atom families (`chi_subgraph_accumulators`, `chi_values`, `bcut`) — and `bcut`
+additionally called `_intrinsic_state`, which recomputes both yet again. Promoted
+them to `sigma_electron_counts` / `valence_electron_counts` / `intrinsic_states`
+`cached_property` values so the neighbor walk runs once per molecule and all three
+families share it. Also added `atomic_numbers` (heavy) and
+`explicit_hydrogen_atomic_numbers` (shared by autocorrelation + constitutional) so
+the 8 bcut and 8 constitutional property-table builders iterate the molecule once
+instead of once per table.
+
+Full panel: ~224 → ~214 ms/pass (min), ~5%. The win is driven by the sigma/valence
+neighbor-walk dedup; the atomic-number sharing removes redundant iteration but lands
+within measurement noise on this small-molecule panel (it would matter more on
+larger inputs). Recorded so the marginal atomic-number part is not "re-optimized"
+expecting a big delta. All 77 tests pass (commit `659578a`).
+
+Two external-tool levers were investigated and **not** pursued in the library:
+multiprocessing (joblib) gives ~4.4× on *batch* workloads but only helps when
+scoring many molecules and is a dependency/API decision left to the caller; Numba/
+Cython are a poor fit because the hot loops operate on RDKit objects and nested
+dicts/sets, not numpy arrays (threads were measured *slower* — the work is
+GIL-bound).
+
 ### EState: one shared TypeAtoms + EStateIndices pass for all three families ✓ done
 
 `cProfile` of `estate_atom_type_agg` (the maxmin/sum families) showed
