@@ -449,6 +449,10 @@ MORDRED_RDKIT_ALIASES.update({
     "GhoseFilter":  "RDKit Ghose drug-likeness filter",
     "FilterItLogS": "RDKit Filter-it LogS model",
     "DetourIndex":  "RDKit detour index",
+    "BalabanJ":     "RDKit BalabanJ with explicit heavy-atom distance matrix",
+    "Kier1":        "RDKit Kier kappa shape index 1 (path-count formula)",
+    "Kier2":        "RDKit Kier kappa shape index 2 (path-count formula)",
+    "Kier3":        "RDKit Kier kappa shape index 3 (path-count formula)",
 })
 
 ATOMIC_ID_DESCRIPTORS: tuple[str, ...] = (

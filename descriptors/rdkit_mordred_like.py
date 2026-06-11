@@ -1171,6 +1171,41 @@ class _DescriptorContext:
         return {"RNCG": rncg, "RPCG": rpcg}
 
     @cached_property
+    def kier_values(self) -> dict[str, float]:
+        """Kier kappa shape indices 1-3 (Mordred KappaShapeIndex formula)."""
+        nan = float("nan")
+        A = len(self.atoms)
+        bond_pairs = self.bond_atom_pairs
+        P1 = len(bond_pairs)
+
+        # Path counts for orders 2 and 3 via the same DFS classifier used for chi
+        P2 = P3 = 0
+        for order in (2, 3):
+            for use_bonds in Chem.FindAllSubgraphsOfLengthN(self.mol, order):
+                chi_type, _ = _classify_chi_subgraph(bond_pairs, use_bonds)
+                if chi_type == "path":
+                    if order == 2:
+                        P2 += 1
+                    else:
+                        P3 += 1
+
+        def _kier(P: int, order: int) -> float:
+            if P == 0:
+                return nan
+            Pmin = A - order
+            if order == 1:
+                Pmax = 0.5 * A * (A - 1)
+                return 2.0 * Pmax * Pmin / (P * P)
+            elif order == 2:
+                Pmax = 0.5 * (A - 1) * (A - 2)
+                return 2.0 * Pmax * Pmin / (P * P)
+            else:
+                Pmax = 0.25 * (A - 2) ** 2 if A % 2 == 0 else 0.25 * (A - 1) * (A - 3)
+                return 4.0 * Pmax * Pmin / (P * P)
+
+        return {"Kier1": _kier(P1, 1), "Kier2": _kier(P2, 2), "Kier3": _kier(P3, 3)}
+
+    @cached_property
     def atomic_id_values(self) -> dict[str, float]:
         """Molecular ID descriptors (MID/AMID family)."""
         nan = float("nan")
@@ -2453,11 +2488,19 @@ def _detour_index(ctx: _DescriptorContext) -> float:
     return int(0.5 * dt.sum()) if dt is not None else float("nan")
 
 
+def _balaban_j(ctx: _DescriptorContext) -> float:
+    from rdkit.Chem import GraphDescriptors
+    return float(GraphDescriptors.BalabanJ(ctx.mol, dMat=ctx.distance_matrix))
+
+
 _DESCRIPTOR_FUNCTIONS["VAdjMat"] = _vadjmat
 _DESCRIPTOR_FUNCTIONS["Lipinski"] = _lipinski
 _DESCRIPTOR_FUNCTIONS["GhoseFilter"] = _ghose_filter
 _DESCRIPTOR_FUNCTIONS["FilterItLogS"] = _filter_it_logs
 _DESCRIPTOR_FUNCTIONS["DetourIndex"] = _detour_index
+_DESCRIPTOR_FUNCTIONS["BalabanJ"] = _balaban_j
+for _name in ("Kier1", "Kier2", "Kier3"):
+    _DESCRIPTOR_FUNCTIONS[_name] = (lambda n: lambda ctx: ctx.kier_values[n])(_name)
 
 for _name in SMALL_GRAPH_FORMULA_DESCRIPTORS:
     if _name not in _DESCRIPTOR_FUNCTIONS:

@@ -425,16 +425,29 @@ descriptor that is undefined in both implementations.
     - Disconnected molecules return NaN for all 12 descriptors, matching
       Mordred's `require_connected=True` policy.
 
-## Remaining Families (future expansion)
+## Step 24 — BalabanJ and Kier1/2/3 (4 new, 1609 → 1613)
 
-Only four Mordred 2D descriptors remain unsupported in
-`tests/unsupported_mordred.json`. They should stay unsupported unless a new
-clean-room implementation is proven compatible against Mordred numeric values:
+These four were previously excluded after failing validation. Root cause and fix:
 
-- `BalabanJ`
-- `Kier1`
-- `Kier2`
-- `Kier3`
+**BalabanJ:** `rdkit.Chem.GraphDescriptors.BalabanJ(mol)` without `dMat` applies
+a different (valence-adjusted) path weighting and diverges from Mordred. Fix:
+pass `dMat=ctx.distance_matrix` (the plain heavy-atom topological distance
+matrix). Mordred wraps exactly this call.
+
+**Kier1/2/3:** RDKit's `CalcKappa*` descriptors apply Kier's valence-corrected
+formula. Mordred's `Kier*` use the original shape-index formula:
+
+- `P` = path-subgraph count for order k (reuses `_classify_chi_subgraph`)
+- `Pmin = A − k`, with Pmax as a function of order
+- `Kier1/2: 2·Pmax·Pmin / P²`; `Kier3: 4·Pmax·Pmin / P²`
+- NaN when P = 0 (disconnected or too-small molecule)
+
+221 oracle cells checked, zero mismatches. `tests/unsupported_mordred.json` is
+now an empty list — all 1,613 Mordred 2D descriptors are supported.
+
+## Remaining Families
+
+None. All 1,613 Mordred 2D descriptors are now covered.
 
 ## Implementation Rules
 

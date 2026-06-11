@@ -146,16 +146,22 @@ Mordred names implemented with explicit RDKit-only helpers:
 - Drug-likeness filters: `Lipinski` (rule of five), `GhoseFilter` (Ghose
   drug-likeness), and `FilterItLogS` (Filter-it aqueous solubility model with
   Mordred SMARTS coefficients)
+- `BalabanJ`: Balaban's J index via `rdkit.Chem.GraphDescriptors.BalabanJ`
+  with the explicit heavy-atom distance matrix passed as `dMat`; without this
+  argument RDKit applies a different weighting and diverges from Mordred
+- `Kier1`, `Kier2`, `Kier3`: Kier kappa shape indices using Mordred's
+  path-count formula (`2·Pmax·Pmin/P²` for orders 1–2, `4·Pmax·Pmin/P²` for
+  order 3); RDKit's `CalcKappa*` uses a valence-corrected variant and produces
+  different values
 
-`BalabanJ` is intentionally not included. RDKit and Mordred values did not
-match on the validation panel. RDKit `TPSA` is also not included under that
-name because Mordred exposes the compatible descriptors as `TopoPSA` and
-`TopoPSA(NO)`. `Vabc` returns documented `NaN` for atoms outside its Bondi
-radius table, such as iodine in the validation panel. RDKit-native `Kappa*`,
-`fr_*`, and `BCUT2D_*` descriptors are intentionally excluded from the
-Mordred-name output unless separately validated. Future functional-group
-expansion should start from Mordred descriptor names and targeted
-counterexamples, not from bulk RDKit `fr_*` helpers.
+RDKit `TPSA` is not included under that name because Mordred exposes the
+compatible descriptors as `TopoPSA` and `TopoPSA(NO)`. `Vabc` returns
+documented `NaN` for atoms outside its Bondi radius table, such as iodine in
+the validation panel. RDKit-native `Kappa*`, `fr_*`, and `BCUT2D_*`
+descriptors are intentionally excluded from the Mordred-name output unless
+separately validated. Future functional-group expansion should start from
+Mordred descriptor names and targeted counterexamples, not from bulk RDKit
+`fr_*` helpers.
 
 ## Usage
 
