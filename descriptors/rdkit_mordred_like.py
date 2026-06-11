@@ -660,6 +660,62 @@ class _DescriptorContext:
         return results
 
     @cached_property
+    def chi_subgraph_accumulators(self):
+        """Enumerate connected subgraphs (orders 2-7) once, classify and accumulate.
+
+        Returns ``(sums, nan_flag, counts)`` keyed by chi subgraph type/order. The
+        single ``FindAllSubgraphsOfLengthN`` sweep is shared by both ``chi_values``
+        and ``kier_values`` (which only needs the path counts).
+        """
+        mol = self.mol
+        atoms = list(mol.GetAtoms())
+        d_vals = [float(_sigma_electron_count(a)) for a in atoms]
+        dv_vals = [_valence_electron_count(a) for a in atoms]
+        bond_pairs = self.bond_atom_pairs
+
+        _type_ranges: dict[str, range] = {
+            "path": range(2, 8),
+            "cluster": range(3, 7),
+            "path_cluster": range(4, 7),
+            "chain": range(3, 8),
+        }
+        sums: dict[tuple[str, int, str], float] = {}
+        nan_flag: dict[tuple[str, int, str], bool] = {}
+        counts: dict[tuple[str, int], int] = {}
+        for chi_type, rng in _type_ranges.items():
+            for order in rng:
+                counts[(chi_type, order)] = 0
+                for pname in ("d", "dv"):
+                    sums[(chi_type, order, pname)] = 0.0
+                    nan_flag[(chi_type, order, pname)] = False
+
+        for order in range(2, 8):
+            for use_bonds in Chem.FindAllSubgraphsOfLengthN(mol, order):
+                chi_type, nodes = _classify_chi_subgraph(bond_pairs, use_bonds)
+                k = (chi_type, order)
+                if k not in counts:
+                    continue
+                counts[k] += 1
+                for pname, vals in (("d", d_vals), ("dv", dv_vals)):
+                    key = (chi_type, order, pname)
+                    if nan_flag[key]:
+                        continue
+                    c = 1.0
+                    bad = False
+                    for node in nodes:
+                        v = vals[node]
+                        if math.isnan(v) or v <= 0:
+                            bad = True
+                            break
+                        c *= v
+                    if bad:
+                        nan_flag[key] = True
+                    else:
+                        sums[key] += c ** -0.5
+
+        return sums, nan_flag, counts
+
+    @cached_property
     def chi_values(self) -> dict[str, float]:
         """Kier-Hall chi connectivity indices (Mordred Xp-*/Xc-*/Xch-*/Xpc-*/AXp-*)."""
         mol = self.mol
@@ -710,39 +766,7 @@ class _DescriptorContext:
             "chain": "Xch",
         }
 
-        sums: dict[tuple[str, int, str], float] = {}
-        nan_flag: dict[tuple[str, int, str], bool] = {}
-        counts: dict[tuple[str, int], int] = {}
-        for chi_type, rng in _type_ranges.items():
-            for order in rng:
-                counts[(chi_type, order)] = 0
-                for pname in ("d", "dv"):
-                    sums[(chi_type, order, pname)] = 0.0
-                    nan_flag[(chi_type, order, pname)] = False
-
-        for order in range(2, 8):
-            for use_bonds in Chem.FindAllSubgraphsOfLengthN(mol, order):
-                chi_type, nodes = _classify_chi_subgraph(bond_pairs, use_bonds)
-                k = (chi_type, order)
-                if k not in counts:
-                    continue
-                counts[k] += 1
-                for pname, vals in (("d", d_vals), ("dv", dv_vals)):
-                    key = (chi_type, order, pname)
-                    if nan_flag[key]:
-                        continue
-                    c = 1.0
-                    bad = False
-                    for node in nodes:
-                        v = vals[node]
-                        if math.isnan(v) or v <= 0:
-                            bad = True
-                            break
-                        c *= v
-                    if bad:
-                        nan_flag[key] = True
-                    else:
-                        sums[key] += c ** -0.5
+        sums, nan_flag, counts = self.chi_subgraph_accumulators
 
         for chi_type, prefix in _type_prefix.items():
             for order in _type_ranges[chi_type]:
@@ -909,25 +933,35 @@ class _DescriptorContext:
             t = int(b.GetBondType())
             bonds_dict[s, d] = t
             bonds_dict[d, s] = t
-        atom_info = [(a.GetAtomicNum(), a.GetDegree()) for a in mol.GetAtoms()]
+        atoms = list(mol.GetAtoms())
+        atom_info = [(a.GetAtomicNum(), a.GetDegree()) for a in atoms]
+        masses = [a.GetMass() for a in atoms]
+        znums = [info[0] for info in atom_info]
         adj = [[] for _ in range(n)]
         for b in mol.GetBonds():
             s, d = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
             adj[s].append(d)
             adj[d].append(s)
 
-        for order in range(6):
-            if order == 0:
-                codes: list = [info[0] for info in atom_info]
-            else:
-                codes = [_ic_atom_code(bonds_dict, atom_info, adj, i, order) for i in range(n)]
+        # Build every atom's order 1..5 code in a single tree walk per root; order 0
+        # is just the atomic number.
+        codes_by_order: list = [znums]
+        for _ in range(5):
+            codes_by_order.append([None] * n)
+        for root in range(n):
+            root_codes = _ic_root_codes(root, adj, bonds_dict, atom_info, 5)
+            for order in range(1, 6):
+                codes_by_order[order][root] = root_codes[order]
 
+        for order in range(6):
+            codes = codes_by_order[order]
             groups: dict = {}
             for i, code in enumerate(codes):
-                if code not in groups:
+                g = groups.get(code)
+                if g is None:
                     groups[code] = (i, 1)
                 else:
-                    groups[code] = (groups[code][0], groups[code][1] + 1)
+                    groups[code] = (g[0], g[1] + 1)
 
             ic = 0.0
             mic = 0.0
@@ -936,8 +970,8 @@ class _DescriptorContext:
                 p = count / n
                 lp = math.log2(p)
                 ic -= p * lp
-                mic -= mol.GetAtomWithIdx(rep_idx).GetMass() * p * lp
-                zmic -= count * mol.GetAtomWithIdx(rep_idx).GetAtomicNum() * p * lp
+                mic -= masses[rep_idx] * p * lp
+                zmic -= count * znums[rep_idx] * p * lp
 
             result[f"IC{order}"] = ic
             result[f"TIC{order}"] = n * ic
@@ -1178,16 +1212,10 @@ class _DescriptorContext:
         bond_pairs = self.bond_atom_pairs
         P1 = len(bond_pairs)
 
-        # Path counts for orders 2 and 3 via the same DFS classifier used for chi
-        P2 = P3 = 0
-        for order in (2, 3):
-            for use_bonds in Chem.FindAllSubgraphsOfLengthN(self.mol, order):
-                chi_type, _ = _classify_chi_subgraph(bond_pairs, use_bonds)
-                if chi_type == "path":
-                    if order == 2:
-                        P2 += 1
-                    else:
-                        P3 += 1
+        # Path counts for orders 2 and 3 reuse the shared chi subgraph enumeration.
+        _, _, counts = self.chi_subgraph_accumulators
+        P2 = counts[("path", 2)]
+        P3 = counts[("path", 3)]
 
         def _kier(P: int, order: int) -> float:
             if P == 0:
@@ -1486,25 +1514,36 @@ def _ic_expand_tree(tree: dict, visited: set, adj: list) -> None:
             _ic_expand_tree(children, visited, adj)
 
 
-def _ic_tree_trails(tree, before, trail, bonds_dict, atom_info):
-    if len(tree) == 0:
-        yield trail
-    else:
-        for src, subtree in tree.items():
-            code: list = []
-            if before is not None:
-                code.append(bonds_dict[before, src])
-            code.append(atom_info[src])
-            nxt = trail + tuple(code)
-            yield from _ic_tree_trails(subtree, src, nxt, bonds_dict, atom_info)
+def _ic_walk(subtree, before, trail, depth, max_order, order_trails, bonds_dict, atom_info):
+    # Single DFS over the depth-``max_order`` BFS tree, collecting the root-to-node
+    # trail for every position. A position at depth ``d`` is a frontier leaf of the
+    # order-``d`` tree, so it contributes to ``order_trails[d]``; a *natural* leaf
+    # (no children in the full tree) stays a leaf at every deeper order, so it also
+    # contributes to ``order_trails[d+1 .. max_order]``.
+    for src, children in subtree.items():
+        if before is None:
+            ntrail = (atom_info[src],)
+        else:
+            ntrail = trail + (bonds_dict[before, src], atom_info[src])
+        order_trails[depth].append(ntrail)
+        if children:
+            _ic_walk(children, src, ntrail, depth + 1, max_order, order_trails, bonds_dict, atom_info)
+        else:
+            for k in range(depth + 1, max_order + 1):
+                order_trails[k].append(ntrail)
 
 
-def _ic_atom_code(bonds_dict, atom_info, adj, root, order):
+def _ic_root_codes(root, adj, bonds_dict, atom_info, max_order):
+    # Build the BFS tree once to depth ``max_order`` (each expansion only adds a
+    # deeper level, so the depth-``k`` truncation equals an independently built
+    # order-``k`` tree), then emit the order 1..max_order codes in a single walk.
     tree: dict = {root: ()}
     visited = {root}
-    for _ in range(order):
+    for _ in range(max_order):
         _ic_expand_tree(tree, visited, adj)
-    return tuple(sorted(_ic_tree_trails(tree, None, (), bonds_dict, atom_info)))
+    order_trails: list = [[] for _ in range(max_order + 1)]
+    _ic_walk(tree, None, (), 0, max_order, order_trails, bonds_dict, atom_info)
+    return [tuple(sorted(order_trails[o])) for o in range(max_order + 1)]
 
 
 # CarbonTypes hybridization SP mapping (Mordred CarbonTypes.py)
