@@ -96,6 +96,41 @@ sweep runs once per molecule.
 
 Both changes together: full panel ~255 → ~228 ms/pass (commit `cae5a5f`).
 
+### Profiler bucket split (scalar_aliases → carbon_types / drug_likeness / graph_scalars)
+
+The `scalar_aliases` residual in `scripts/profile_rdkit_mordred_like.py` lumped 62
+descriptors, making the 2.89s reading uninterpretable. Added three named groups:
+`carbon_types` (`CARBON_TYPES_DESCRIPTORS` + `HybRatio`), `drug_likeness`
+(`Lipinski`, `GhoseFilter`, `FilterItLogS`), and `graph_scalars` (`BalabanJ`,
+`Kier1/2/3`, `VAdjMat`, `DetourIndex`, `RNCG`, `RPCG`). `scalar_aliases` now holds
+only the genuinely trivial counts (atom/bond/ring counts, `MW`, `TopoPSA`, etc.) and
+reads ~0.79s in the grouped benchmark.
+
+Note: `graph_scalars` shows ~1.78s in the grouped benchmark because a fresh context
+triggers the distance matrix and detour matrix — that cost is amortized to near-zero
+in the real single-context entry point.
+
+### Cache Crippen logP/MR and HBA/HBD; reuse in drug-likeness filters
+
+`_lipinski` and `_ghose_filter` recomputed RDKit quantities already computed
+independently by other descriptors: `Crippen.MolLogP` (also `SLogP`, up to 3×/mol),
+`Crippen.MolMR` (also `SMR`, 2×), `CalcNumHBA`/`CalcNumHBD` (also `nHBAcc`/`nHBDon`,
+2×). Added `mol_log_p`, `mol_mr`, `num_hba`, `num_hbd` cached properties on
+`_DescriptorContext` and rewired all six call sites to read them.
+
+### ETA: cache reference and saturated molecules
+
+`cProfile` of `eta_values` showed `_eta_build_reference_mol` and
+`_eta_atom_properties` each called **2× per molecule**: `_eta_reference_mol_with_h`
+unconditionally re-called `_eta_build_reference_mol` from scratch rather than reusing
+the mol built earlier in the same `eta_values` call. Additionally, the kekulized
+copy of `self.mol` was rebuilt inside `eta_values` on every invocation. Fixed by
+adding four `cached_property` entries on `_DescriptorContext`:
+`_eta_kekulized_mol`, `_eta_reference_mol`, `_eta_reference_mol_with_h` (calls
+`Chem.AddHs` on the cached `_eta_reference_mol` instead of rebuilding from scratch),
+`_eta_saturated_mol`. ETA isolated: ~29 → ~22 ms/pass (~25%); full panel ~228 →
+~225 ms/pass. All 77 tests pass (commit `33fa583`).
+
 ### Autocorrelation: fused per-lag numpy pass
 
 All autocorrelation properties share the same per-lag graph-distance work (the
@@ -245,73 +280,55 @@ group dropped ~33% (1.82s → 1.22s) and the full panel ~10%.
 
 ## Future optimization plan
 
-### Baseline to work from
+### Current baseline
 
-Current grouped profile (`scripts/profile_rdkit_mordred_like.py --grouped
---repeat 60`, full panel, ~13.5s total), ranked by elapsed:
+Grouped profile (`scripts/profile_rdkit_mordred_like.py --grouped --repeat 60`,
+full panel, ~13.3s total), ranked by elapsed. The grouped benchmark builds a fresh
+`_DescriptorContext` per group, so any group that touches the distance or detour
+matrix (e.g. `graph_scalars`, `spectral`) appears inflated relative to its cost in
+the real single-context entry point. Always confirm a candidate against the
+`calc_rdkit_mordred_like_2d` wall-clock before trusting a group delta.
 
-| group | elapsed (s) | state |
+| group | elapsed (s) | notes |
 | --- | --- | --- |
-| scalar_aliases | 2.89 | opaque grab-bag — split it (A) |
-| chi | 1.63 | optimized once; likely near floor (D) |
-| information_content | 1.50 | just halved; residual (E) |
-| eta | 1.46 | **never optimized** (C) |
-| autocorrelation | 1.27 | heavily optimized; near floor |
-| path_counts | 1.06 | optimized; confirmed at floor |
-| spectral | 0.84 | optimized (batched eigensolve) |
-
-Read the grouped numbers with the Architecture caveat in mind: each group is timed
-with a *fresh* `_DescriptorContext`, so `scalar_aliases` is inflated by setup
-(Gasteiger charges, distance/detour matrices) that the single-context entry point
-amortizes. Confirm a candidate against the real `calc_rdkit_mordred_like_2d` run
-before trusting a group delta.
+| chi | 1.53 | optimized once; likely near floor (see D) |
+| information_content | 1.48 | halved this session; residual (see E) |
+| eta | 1.34 | just optimized (cached mols) |
+| autocorrelation | 1.26 | heavily optimized; near floor |
+| path_counts | 1.06 | confirmed at floor |
+| spectral | 0.83 | optimized (batched eigensolve) |
+| scalar_aliases | 0.79 | trivial counts only; near floor |
+| bcut | 0.67 | optimized (batched eigensolve) |
+| estate_atom_type_maxmin | 0.62 | not yet profiled |
+| estate_atom_type_sum | 0.60 | not yet profiled |
 
 Every candidate below must follow the same discipline as the completed work:
 **numerically diff the new output against the current implementation across the
-full panel and every parameter (order/lag/property) before replacing code**, then
-run `conda run -n open3d python -m pytest tests/ -q` as the final oracle gate.
-Record any rejected experiment with its workload caveat.
+full panel and every parameter before replacing code**, then run
+`conda run -n open3d python -m pytest tests/ -q` as the final oracle gate. Record
+any rejected experiment with its workload caveat.
 
-### A. Enabler — split the `scalar_aliases` profiling bucket ✓ done
-
-Added `carbon_types`, `drug_likeness`, `graph_scalars` named groups to
-`scripts/profile_rdkit_mordred_like.py`. What remains in `scalar_aliases` is only
-the genuinely trivial counts (atom/bond/ring counts, `MW`, `TopoPSA`, etc.).
-
-### B. Cache Crippen logP/MR and HBA/HBD; reuse in drug-likeness filters ✓ done
-
-Added `mol_log_p`, `mol_mr`, `num_hba`, `num_hbd` cached properties on
-`_DescriptorContext` and rewired `SMR`, `SLogP`, `nHBAcc`, `nHBDon`, `_lipinski`,
-`_ghose_filter` to read them. Eliminated up to 3× redundant `MolLogP` and 2×
-redundant `MolMR`/`CalcNumHBA`/`CalcNumHBD` calls per molecule.
-
-### C. ETA family — cache reference/saturated mols ✓ done
-
-`cProfile` showed `_eta_build_reference_mol` and `_eta_atom_properties` were each
-called **2× per molecule** (once directly, once via `_eta_reference_mol_with_h`
-which unconditionally re-called `_eta_build_reference_mol`). Additionally, the
-kekulized heavy-atom mol was rebuilt inside `eta_values` on every call even though
-`eta_values` is already a `cached_property`. Fixed by adding four `cached_property`
-entries on `_DescriptorContext`: `_eta_kekulized_mol`, `_eta_reference_mol`,
-`_eta_reference_mol_with_h` (reuses `_eta_reference_mol` via `Chem.AddHs`),
-`_eta_saturated_mol`. ETA isolated: ~29 → ~22 ms/pass (~25%); full panel ~228 →
-~225 ms. All 77 tests pass.
-
-### D. chi accumulation (1.63s) — measure first, likely near floor
+### D. chi accumulation (1.53s) — measure first, likely near floor
 
 Past the DFS→degree-count rewrite. The remaining cost is the C++
-`FindAllSubgraphsOfLengthN` sweep (one call per order, orders 2-7 — there is no
-range-returning API to fold them) plus the per-subgraph Python product loop in
+`FindAllSubgraphsOfLengthN` sweep (one call per order, orders 2-7 — no range API
+exists to fold them into one) plus the per-subgraph Python product loop in
 `chi_subgraph_accumulators`. A measurement pass could test vectorizing the
-endpoint-value products per order (subgraphs of one order form a rectangular
+endpoint-value products per order (subgraphs of a given order form a rectangular
 node-index matrix), but heed the path-count lesson already recorded above: numpy
-*lost* there because per-(molecule, order) sets are small and fixed call overhead
+*lost* there because per-(molecule, order) sets are small and fixed per-call overhead
 dominated. Treat as "measure, expect to leave alone."
 
-### E. IC residual (1.50s, post-halving) — lower priority
+### E. IC residual (1.48s, post-halving) — lower priority
 
 After the single-walk rewrite the residual is dominated by building and sorting the
 trail tuples. A possible further step: intern each trail to an integer id per order
-so the grouping step compares ints instead of nested tuples. Confirm with
-`cProfile` that the sort/compare actually dominates before attempting — it may
-already be at a reasonable floor, in which case record that and stop.
+so the grouping step compares ints not nested tuples. Confirm with `cProfile` that
+the sort/compare actually dominates before attempting — it may already be at a
+reasonable floor.
+
+### F. EState maxmin (1.22s combined) — not yet profiled
+
+`estate_atom_type_maxmin` (0.62s) and `estate_atom_type_sum` (0.60s) have not been
+looked at. Run `cProfile` on `estate_values` to identify the hotspot before
+touching anything.
