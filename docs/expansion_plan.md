@@ -18,7 +18,7 @@ descriptor that is undefined in both implementations.
 
 ## Current State
 
-- Supported Mordred-name descriptors: 1609.
+- Supported Mordred-name descriptors: 1613.
 - Validation molecules: 65.
 - Current baseline: `PYTHONPATH=/Users/charlles/MIT/descriptors conda run --no-capture-output -n open3d pytest -q`
   passes with 77 tests.

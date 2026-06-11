@@ -278,55 +278,6 @@ replaces the whole DFS. Verified to reproduce Mordred's classifier on all 3601
 panel subgraphs (zero mismatches) before replacing the code. Result: the chi
 group dropped ~33% (1.82s → 1.22s) and the full panel ~10%.
 
-## Future optimization plan
-
-### Current baseline
-
-Grouped profile (`scripts/profile_rdkit_mordred_like.py --grouped --repeat 60`,
-full panel, ~13.3s total), ranked by elapsed. The grouped benchmark builds a fresh
-`_DescriptorContext` per group, so any group that touches the distance or detour
-matrix (e.g. `graph_scalars`, `spectral`) appears inflated relative to its cost in
-the real single-context entry point. Always confirm a candidate against the
-`calc_rdkit_mordred_like_2d` wall-clock before trusting a group delta.
-
-| group | elapsed (s) | notes |
-| --- | --- | --- |
-| chi | 1.53 | optimized once; likely near floor (see D) |
-| information_content | 1.48 | halved this session; residual (see E) |
-| eta | 1.34 | just optimized (cached mols) |
-| autocorrelation | 1.26 | heavily optimized; near floor |
-| path_counts | 1.06 | confirmed at floor |
-| spectral | 0.83 | optimized (batched eigensolve) |
-| scalar_aliases | 0.79 | trivial counts only; near floor |
-| bcut | 0.67 | optimized (batched eigensolve) |
-| estate_atom_type_maxmin | 0.62 | not yet profiled |
-| estate_atom_type_sum | 0.60 | not yet profiled |
-
-Every candidate below must follow the same discipline as the completed work:
-**numerically diff the new output against the current implementation across the
-full panel and every parameter before replacing code**, then run
-`conda run -n open3d python -m pytest tests/ -q` as the final oracle gate. Record
-any rejected experiment with its workload caveat.
-
-### D. chi accumulation (1.53s) — measure first, likely near floor
-
-Past the DFS→degree-count rewrite. The remaining cost is the C++
-`FindAllSubgraphsOfLengthN` sweep (one call per order, orders 2-7 — no range API
-exists to fold them into one) plus the per-subgraph Python product loop in
-`chi_subgraph_accumulators`. A measurement pass could test vectorizing the
-endpoint-value products per order (subgraphs of a given order form a rectangular
-node-index matrix), but heed the path-count lesson already recorded above: numpy
-*lost* there because per-(molecule, order) sets are small and fixed per-call overhead
-dominated. Treat as "measure, expect to leave alone."
-
-### E. IC residual (1.48s, post-halving) — lower priority
-
-After the single-walk rewrite the residual is dominated by building and sorting the
-trail tuples. A possible further step: intern each trail to an integer id per order
-so the grouping step compares ints not nested tuples. Confirm with `cProfile` that
-the sort/compare actually dominates before attempting — it may already be at a
-reasonable floor.
-
 ### Per-atom primitives: cache on the context to cut redundant RDKit iteration
 
 A full-calc cProfile bucketed by source file showed the time split as ~60% our
@@ -341,16 +292,17 @@ heavy-atom families (`chi_subgraph_accumulators`, `chi_values`, `bcut`) — and 
 additionally called `_intrinsic_state`, which recomputes both yet again. Promoted
 them to `sigma_electron_counts` / `valence_electron_counts` / `intrinsic_states`
 `cached_property` values so the neighbor walk runs once per molecule and all three
-families share it. Also added `atomic_numbers` (heavy) and
-`explicit_hydrogen_atomic_numbers` (shared by autocorrelation + constitutional) so
-the 8 bcut and 8 constitutional property-table builders iterate the molecule once
-instead of once per table.
+families share it.
 
-Full panel: ~224 → ~214 ms/pass (min), ~5%. The win is driven by the sigma/valence
-neighbor-walk dedup; the atomic-number sharing removes redundant iteration but lands
-within measurement noise on this small-molecule panel (it would matter more on
-larger inputs). Recorded so the marginal atomic-number part is not "re-optimized"
-expecting a big delta. All 77 tests pass (commit `659578a`).
+Full panel: ~224 → ~214 ms/pass (min), ~5% (commit `659578a`). A companion
+`atomic_numbers` / `explicit_hydrogen_atomic_numbers` cache (sharing per-atom
+`GetAtomicNum()` across the bcut and constitutional property-table builders) was
+tried in the same commit but **measured within noise and reverted** (`659578a` →
+revert): min 211.9 / median 214.3 ms without it vs 213.8 / 217.9 with it — i.e. it
+was not helping, only adding context surface. `GetAtomicNum()` is a cheap C call, so
+the iteration overhead it removed was negligible relative to the sigma/valence
+double-neighbor-walk. Recorded so it is not re-attempted on this small-molecule
+workload. All 77 tests pass.
 
 Two external-tool levers were investigated and **not** pursued in the library:
 multiprocessing (joblib) gives ~4.4× on *batch* workloads but only helps when
@@ -359,7 +311,7 @@ Cython are a poor fit because the hot loops operate on RDKit objects and nested
 dicts/sets, not numpy arrays (threads were measured *slower* — the work is
 GIL-bound).
 
-### EState: one shared TypeAtoms + EStateIndices pass for all three families ✓ done
+### EState: one shared TypeAtoms + EStateIndices pass for all three families
 
 `cProfile` of `estate_atom_type_agg` (the maxmin/sum families) showed
 `AtomTypes.TypeAtoms` dominating at ~0.41s for 3900 calls — and it was being called
@@ -379,3 +331,54 @@ Isolated EState all-families time (shared context): ~33 → ~12 ms (~2.3×).
 Full panel: stable at ~224 ms (the ~7 ms absolute saving is real but within
 measurement noise of the panel; the grouped benchmark masked the duplication
 because it builds a fresh context per group). All 77 tests pass (commit `0274186`).
+
+## Future optimization plan
+
+**Status: paused at the point of diminishing returns.** The full panel went 255 →
+~212 ms/pass this session; the hot families are deduplicated and the calculator is
+~5.5× faster than Mordred on the same descriptor set. Remaining single-molecule
+candidates offer <5% each for added algorithmic subtlety — a poor trade against the
+project's "resist speculative optimization" rule. **The largest untapped lever
+(process parallelism, ~4.4×) lives entirely outside the descriptor code** and is
+best left as a documented caller pattern, keeping the RDKit-only library surface
+clean. Profile before reopening any of the below; confirm against the
+`calc_rdkit_mordred_like_2d` wall-clock, diff bit-exact across the full panel, and
+gate on `conda run -n open3d python -m pytest tests/ -q`.
+
+### Current baseline
+
+Grouped profile (`scripts/profile_rdkit_mordred_like.py --grouped --repeat 60`),
+ranked by elapsed. The grouped benchmark builds a fresh `_DescriptorContext` per
+group, so any group that touches the distance/detour matrix appears inflated
+relative to the real single-context run — always cross-check the wall-clock.
+
+| group | elapsed (s) | notes |
+| --- | --- | --- |
+| chi | ~1.5 | optimized; near floor (see D) |
+| information_content | ~1.5 | halved; residual is irreducible trail build/sort |
+| eta | ~1.3 | optimized (cached mols) |
+| autocorrelation | ~1.3 | heavily optimized; near floor |
+| path_counts | ~1.1 | confirmed at floor |
+| spectral | ~0.8 | optimized (batched eigensolve) |
+| bcut | ~0.7 | optimized (batched eigensolve) |
+| estate_atom_type_* | ~0.6 ea | deduplicated TypeAtoms/EStateIndices |
+
+### D. chi accumulation — measure first, expect to leave alone
+
+Past the DFS→degree-count rewrite. The remaining cost is the C++
+`FindAllSubgraphsOfLengthN` sweep (one call per order, orders 2-7 — no range API
+to fold them) plus the per-subgraph Python product loop in
+`chi_subgraph_accumulators`. Vectorizing the endpoint products per order is
+*possible* but heed the recorded path-count lesson: numpy lost there because
+per-(molecule, order) subgraph sets are small and fixed per-call overhead dominated.
+Only reopen with a larger-molecule workload that changes that calculus.
+
+### Retired candidates
+
+- **IC trail interning** (intern each BFS trail to an int id so grouping compares
+  ints not nested tuples): retired. The IC residual after the single-walk rewrite is
+  the irreducible trail construction + sort; interning adds bookkeeping for a
+  sub-noise gain on this panel. Not worth the added subtlety on top of an already
+  non-trivial algorithm.
+- **atomic_numbers context cache**: tried and reverted (see the per-atom entry
+  above) — within noise because `GetAtomicNum()` is a cheap C call.
