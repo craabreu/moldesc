@@ -201,6 +201,38 @@ class _DescriptorContext:
         return tuple(bond.GetBondTypeAsDouble() for bond in self.bonds)
 
     @cached_property
+    def atomic_numbers(self) -> tuple[int, ...]:
+        # Heavy-atom atomic numbers; shared by every per-atom property-table lookup
+        # (bcut, etc.) so the molecule is iterated once instead of per table.
+        return tuple(atom.GetAtomicNum() for atom in self.atoms)
+
+    @cached_property
+    def explicit_hydrogen_atomic_numbers(self) -> tuple[int, ...]:
+        # Atomic numbers over the explicit-H molecule (autocorrelation, constitutional).
+        return tuple(atom.GetAtomicNum() for atom in self.explicit_hydrogen_mol.GetAtoms())
+
+    @cached_property
+    def sigma_electron_counts(self) -> tuple[int, ...]:
+        # Mordred ``d`` per heavy-atom; each call iterates GetNeighbors(), so cache
+        # once and share across chi, bcut, and intrinsic-state consumers.
+        return tuple(_sigma_electron_count(atom) for atom in self.atoms)
+
+    @cached_property
+    def valence_electron_counts(self) -> tuple[float, ...]:
+        # Mordred ``dv`` per heavy-atom (also iterates GetNeighbors()).
+        return tuple(_valence_electron_count(atom) for atom in self.atoms)
+
+    @cached_property
+    def intrinsic_states(self) -> tuple[float, ...]:
+        # Mordred ``s`` per heavy-atom, derived from the cached sigma/valence.
+        return tuple(
+            _intrinsic_state_from(atom.GetAtomicNum(), sigma, valence)
+            for atom, sigma, valence in zip(
+                self.atoms, self.sigma_electron_counts, self.valence_electron_counts
+            )
+        )
+
+    @cached_property
     def distance_matrix(self):
         return self._compute_distance_matrix()
 
@@ -413,7 +445,7 @@ class _DescriptorContext:
         """
 
         atoms = list(self.explicit_hydrogen_mol.GetAtoms())
-        atomic_nums = [atom.GetAtomicNum() for atom in atoms]
+        atomic_nums = self.explicit_hydrogen_atomic_numbers
         sigma = [_sigma_electron_count(atom) for atom in atoms]
         valence = [_valence_electron_count(atom) for atom in atoms]
 
@@ -563,22 +595,22 @@ class _DescriptorContext:
 
     @cached_property
     def bcut_values(self) -> dict[str, float]:
-        atoms = self.atoms
-        n = len(atoms)
+        n = len(self.atoms)
+        znums = self.atomic_numbers
         props = ("Z", "m", "v", "se", "pe", "are", "p", "i", "d", "dv", "s", "c")
         diag_matrix = np.array(
             [
-                [float(a.GetAtomicNum()) for a in atoms],
-                [_MASS_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [_VDW_VOLUME_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [_SANDERSON_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [_PAULING_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [_ALLRED_ROCOW_EN_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [_POLARIZABILITY_94_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [_IONIZATION_POTENTIAL_BY_ATOMIC_NUM.get(a.GetAtomicNum(), float("nan")) for a in atoms],
-                [float(_sigma_electron_count(a)) for a in atoms],
-                [_valence_electron_count(a) for a in atoms],
-                [_intrinsic_state(a) for a in atoms],
+                [float(z) for z in znums],
+                [_MASS_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [_VDW_VOLUME_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [_SANDERSON_EN_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [_PAULING_EN_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [_ALLRED_ROCOW_EN_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [_POLARIZABILITY_94_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [_IONIZATION_POTENTIAL_BY_ATOMIC_NUM.get(z, float("nan")) for z in znums],
+                [float(s) for s in self.sigma_electron_counts],
+                list(self.valence_electron_counts),
+                list(self.intrinsic_states),
                 self._bcut_gasteiger_diagonal,
             ],
             dtype=float,
@@ -608,8 +640,8 @@ class _DescriptorContext:
     @cached_property
     def constitutional_values(self) -> dict[str, float]:
         """Constitutional sums S_p = Σ(p_i/p_C) and means M_p = S_p/A over explicit-H atoms."""
-        atoms = list(self.explicit_hydrogen_mol.GetAtoms())
-        n = len(atoms)
+        znums = self.explicit_hydrogen_atomic_numbers
+        n = len(znums)
         carbon = 6
         prop_funs: list[tuple[str, dict[int, float]]] = [
             ("Z",   {z: float(z) for z in range(1, 119)}),
@@ -624,7 +656,7 @@ class _DescriptorContext:
         results: dict[str, float] = {}
         for suffix, table in prop_funs:
             carbon_val = table[carbon]
-            vals = [table.get(a.GetAtomicNum(), float("nan")) / carbon_val for a in atoms]
+            vals = [table.get(z, float("nan")) / carbon_val for z in znums]
             s = sum(vals) if not any(math.isnan(v) for v in vals) else float("nan")
             results[f"S{suffix}"] = s
             results[f"M{suffix}"] = s / n if not math.isnan(s) else float("nan")
@@ -668,9 +700,8 @@ class _DescriptorContext:
         and ``kier_values`` (which only needs the path counts).
         """
         mol = self.mol
-        atoms = list(mol.GetAtoms())
-        d_vals = [float(_sigma_electron_count(a)) for a in atoms]
-        dv_vals = [_valence_electron_count(a) for a in atoms]
+        d_vals = [float(s) for s in self.sigma_electron_counts]
+        dv_vals = list(self.valence_electron_counts)
         bond_pairs = self.bond_atom_pairs
 
         _type_ranges: dict[str, range] = {
@@ -718,12 +749,10 @@ class _DescriptorContext:
     @cached_property
     def chi_values(self) -> dict[str, float]:
         """Kier-Hall chi connectivity indices (Mordred Xp-*/Xc-*/Xch-*/Xpc-*/AXp-*)."""
-        mol = self.mol
-        atoms = list(mol.GetAtoms())
-        n = len(atoms)
+        n = len(self.atoms)
 
-        d_vals = [float(_sigma_electron_count(a)) for a in atoms]
-        dv_vals = [_valence_electron_count(a) for a in atoms]
+        d_vals = [float(s) for s in self.sigma_electron_counts]
+        dv_vals = list(self.valence_electron_counts)
         bond_pairs = self.bond_atom_pairs
 
         results: dict[str, float] = {}
@@ -1546,16 +1575,6 @@ def _intrinsic_state_from(atomic_num: int, sigma: float, valence: float) -> floa
         return float("nan")
     period = _PERIOD_BY_ATOMIC_NUM.get(atomic_num, float("nan"))
     return ((2.0 / period) ** 2 * valence + 1) / sigma
-
-
-def _intrinsic_state(atom: Chem.Atom) -> float:
-    """Electrotopological intrinsic state (Mordred ``s`` property)."""
-
-    return _intrinsic_state_from(
-        atom.GetAtomicNum(),
-        _sigma_electron_count(atom),
-        _valence_electron_count(atom),
-    )
 
 
 def _ic_expand_tree(tree: dict, visited: set, adj: list) -> None:
