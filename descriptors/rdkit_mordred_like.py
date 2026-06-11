@@ -1313,34 +1313,22 @@ class _DescriptorContext:
             return {name: nan for name in ATOMIC_ID_DESCRIPTORS}
 
         atomic_ids = _atomic_id_per_atom(self)
-        sums = {
-            "MID": sum(atomic_ids),
-            "MID_h": sum(
-                aid
-                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
-                if atom.GetAtomicNum() not in {1, 6}
-            ),
-            "MID_C": sum(
-                aid
-                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
-                if atom.GetAtomicNum() == 6
-            ),
-            "MID_N": sum(
-                aid
-                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
-                if atom.GetAtomicNum() == 7
-            ),
-            "MID_O": sum(
-                aid
-                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
-                if atom.GetAtomicNum() == 8
-            ),
-            "MID_X": sum(
-                aid
-                for aid, atom in zip(atomic_ids, self.atoms, strict=True)
-                if atom.GetAtomicNum() in _MORDRED_HALOGEN_ATOMIC_NUMBERS
-            ),
-        }
+        sums = dict.fromkeys(
+            ("MID", "MID_h", "MID_C", "MID_N", "MID_O", "MID_X"), 0.0
+        )
+        for aid, atom in zip(atomic_ids, self.atoms, strict=True):
+            atomic_num = atom.GetAtomicNum()
+            sums["MID"] += aid
+            if atomic_num != 1 and atomic_num != 6:
+                sums["MID_h"] += aid
+            if atomic_num == 6:
+                sums["MID_C"] += aid
+            elif atomic_num == 7:
+                sums["MID_N"] += aid
+            elif atomic_num == 8:
+                sums["MID_O"] += aid
+            elif atomic_num in _MORDRED_HALOGEN_ATOMIC_NUMBERS:
+                sums["MID_X"] += aid
         return {
             **sums,
             "AMID": sums["MID"] / n,
@@ -1567,7 +1555,7 @@ def _intrinsic_state_from(atomic_num: int, sigma: float, valence: float) -> floa
 
 
 def _ic_expand_tree(tree: dict, visited: set, adj: list) -> None:
-    for src, children in list(tree.items()):
+    for src, children in tree.items():
         visited.add(src)
         if not children:
             tree[src] = {nb: () for nb in adj[src] if nb not in visited}
