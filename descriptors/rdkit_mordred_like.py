@@ -894,22 +894,34 @@ class _DescriptorContext:
         )
 
     @cached_property
+    def _estate_grouped(self) -> dict[str, list[float]]:
+        # TypeAtoms and EStateIndices are both O(n) C++ calls; run each once and
+        # share the result across the count, maxmin, and sum descriptor families.
+        grouped: dict[str, list[float]] = {}
+        for atom_types, es_val in zip(AtomTypes.TypeAtoms(self.mol), EStateIndices(self.mol)):
+            fval = float(es_val)
+            for t in atom_types:
+                lst = grouped.get(t)
+                if lst is None:
+                    grouped[t] = [fval]
+                else:
+                    lst.append(fval)
+        return grouped
+
+    @cached_property
     def estate_atom_type_counts(self) -> dict[str, int]:
+        grouped = self._estate_grouped
         counts = {name: 0 for name in ESTATE_ATOM_TYPE_DESCRIPTORS}
-        for atom_types in AtomTypes.TypeAtoms(self.mol):
-            for atom_type in atom_types:
-                name = f"N{atom_type}"
-                if name in counts:
-                    counts[name] += 1
+        for t, vals in grouped.items():
+            name = f"N{t}"
+            if name in counts:
+                counts[name] = len(vals)
         return counts
 
     @cached_property
     def estate_atom_type_agg(self) -> dict[str, float]:
         nan = float("nan")
-        grouped: dict[str, list[float]] = {}
-        for atom_types, es_val in zip(AtomTypes.TypeAtoms(self.mol), EStateIndices(self.mol)):
-            for t in atom_types:
-                grouped.setdefault(t, []).append(float(es_val))
+        grouped = self._estate_grouped
         result: dict[str, float] = {}
         for name in ESTATE_ATOM_TYPE_MAXMIN_DESCRIPTORS:
             es_type = name[3:]
