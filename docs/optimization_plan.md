@@ -327,8 +327,23 @@ so the grouping step compares ints not nested tuples. Confirm with `cProfile` th
 the sort/compare actually dominates before attempting — it may already be at a
 reasonable floor.
 
-### F. EState maxmin (1.22s combined) — not yet profiled
+### EState: one shared TypeAtoms + EStateIndices pass for all three families ✓ done
 
-`estate_atom_type_maxmin` (0.62s) and `estate_atom_type_sum` (0.60s) have not been
-looked at. Run `cProfile` on `estate_values` to identify the hotspot before
-touching anything.
+`cProfile` of `estate_atom_type_agg` (the maxmin/sum families) showed
+`AtomTypes.TypeAtoms` dominating at ~0.41s for 3900 calls — and it was being called
+twice per molecule when a full calc ran: once inside `estate_atom_type_counts`
+(the `N*` count descriptors) and once inside `estate_atom_type_agg` (maxmin/sum),
+because these were separate `cached_property` values with no shared intermediate.
+`EStateIndices` (0.09s) was also called only from `estate_atom_type_agg`, so the
+counts family paid for `TypeAtoms` without getting the EState values.
+
+Fixed by extracting a `_estate_grouped cached_property` that runs both `TypeAtoms`
+and `EStateIndices` once and returns a `{type_label → [es_val, ...]}` dict.
+`estate_atom_type_counts` and `estate_atom_type_agg` both read from it cheaply.
+`estate_atom_type_counts` also drops the per-assignment increment in favor of
+`len(vals)` directly.
+
+Isolated EState all-families time (shared context): ~33 → ~12 ms (~2.3×).
+Full panel: stable at ~224 ms (the ~7 ms absolute saving is real but within
+measurement noise of the panel; the grouped benchmark masked the duplication
+because it builds a fresh context per group). All 77 tests pass (commit `0274186`).
