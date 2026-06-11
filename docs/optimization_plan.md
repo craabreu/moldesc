@@ -1,9 +1,12 @@
-# Optimization Notes
+# Optimization Plan
 
-Performance notes for the RDKit-only descriptor calculator. The compatibility
-contract is fixed (every supported descriptor must still match the Mordred
-oracle within tolerance), so every optimization here is **behavior-preserving**:
-it changes how a value is computed, never what the value is.
+Performance plan for the RDKit-only descriptor calculator. This file records both
+the **completed** optimizations (with the reasoning and the rejected experiments,
+so they are not re-attempted) and a **backlog** of future candidates ranked by the
+current profiling baseline. The compatibility contract is fixed (every supported
+descriptor must still match the Mordred oracle within tolerance), so every
+optimization here is **behavior-preserving**: it changes how a value is computed,
+never what the value is.
 
 ## Strategy
 
@@ -45,7 +48,53 @@ autocorrelation, BCUT, walk counts, etc. are simply never accessed. This is the
 right lever for callers that need a handful of descriptors, and it is a thin
 wrapper over the existing dispatch rather than a new code path.
 
-## Worked examples
+## Completed optimizations
+
+### Information content: build the BFS tree once, collect all orders in one walk
+
+The IC family (`IC`/`TIC`/`SIC`/`BIC`/`CIC`/`MIC`/`ZMIC`, orders 0-5) groups atoms
+by a canonical code of their depth-*m* BFS subtree. Mordred's `BFSTree` builds that
+code per atom *per order* — for order *m* it resets and expands the tree *m* times,
+then walks it to regenerate every root-to-leaf trail. The original port mirrored
+this exactly, so each atom's tree was rebuilt and re-walked six times.
+
+The key invariant: `_ic_expand_tree` only ever *adds* a deeper level and never
+mutates a shallower one, so the depth-5 tree truncated to depth *m* equals the
+independently built order-*m* tree. The tree is therefore built **once per root**
+(to depth 5) and every order's trails are gathered in a **single DFS**
+(`_ic_root_codes` / `_ic_walk` in `rdkit_mordred_like.py`): each tree position is a
+frontier leaf of the order-*d* tree where *d* is its depth, so it contributes its
+trail to `order_trails[d]`; a *natural* leaf (no children in the full tree) stays a
+leaf at every deeper order, so it also contributes to orders *d+1..5*. Per-atom
+masses and atomic numbers are precomputed into lists instead of re-fetched from the
+molecule inside each group's Shannon-entropy sum.
+
+A Morgan/Weisfeiler-Lehman integer-refinement rewrite was **prototyped and
+rejected**: Mordred's BFS tree duplicates an atom across cycles (two sibling
+frontier nodes can both claim the same unvisited neighbor) and updates its
+`visited` set asymmetrically *during* sibling expansion, so the codes are
+genuinely order-dependent rather than a clean neighborhood hash. The WL prototype
+matched on acyclic molecules but diverged on every ring system in the panel
+(furan, pyrrole, spiro, norbornane). Recorded so it is not re-attempted — the
+speedup has to come from removing redundant work in the *same* traversal, not from
+swapping the traversal.
+
+Verified bit-exact against the current implementation (0 / 4285 per-(root,order)
+codes) and against the Mordred oracle (0 / 2730 cells) before landing. IC isolated
+time dropped ~47.7 → ~24.5 ms/panel-pass.
+
+### chi/Kier: one shared subgraph enumeration
+
+`kier_values` (`Kier1`/`Kier2`/`Kier3`) needs the order-2 and order-3 *path*
+subgraph counts, which it obtained by re-running `FindAllSubgraphsOfLengthN` plus
+the chi subgraph classifier for orders 2-3 — duplicating the orders 2-7 sweep
+`chi_values` already performs. The enumeration is now a shared
+`chi_subgraph_accumulators` cached property returning `(sums, nan_flag, counts)`;
+`chi_values` consumes the sums/counts for its connectivity indices and
+`kier_values` reads `counts[("path", 2)]` / `counts[("path", 3)]`, so the subgraph
+sweep runs once per molecule.
+
+Both changes together: full panel ~255 → ~228 ms/pass (commit `cae5a5f`).
 
 ### Autocorrelation: fused per-lag numpy pass
 
@@ -193,3 +242,94 @@ branch nodes (no degree 2) → cluster. So one pass counting bond-endpoint degre
 replaces the whole DFS. Verified to reproduce Mordred's classifier on all 3601
 panel subgraphs (zero mismatches) before replacing the code. Result: the chi
 group dropped ~33% (1.82s → 1.22s) and the full panel ~10%.
+
+## Future optimization plan
+
+### Baseline to work from
+
+Current grouped profile (`scripts/profile_rdkit_mordred_like.py --grouped
+--repeat 60`, full panel, ~13.5s total), ranked by elapsed:
+
+| group | elapsed (s) | state |
+| --- | --- | --- |
+| scalar_aliases | 2.89 | opaque grab-bag — split it (A) |
+| chi | 1.63 | optimized once; likely near floor (D) |
+| information_content | 1.50 | just halved; residual (E) |
+| eta | 1.46 | **never optimized** (C) |
+| autocorrelation | 1.27 | heavily optimized; near floor |
+| path_counts | 1.06 | optimized; confirmed at floor |
+| spectral | 0.84 | optimized (batched eigensolve) |
+
+Read the grouped numbers with the Architecture caveat in mind: each group is timed
+with a *fresh* `_DescriptorContext`, so `scalar_aliases` is inflated by setup
+(Gasteiger charges, distance/detour matrices) that the single-context entry point
+amortizes. Confirm a candidate against the real `calc_rdkit_mordred_like_2d` run
+before trusting a group delta.
+
+Every candidate below must follow the same discipline as the completed work:
+**numerically diff the new output against the current implementation across the
+full panel and every parameter (order/lag/property) before replacing code**, then
+run `conda run -n open3d python -m pytest tests/ -q` as the final oracle gate.
+Record any rejected experiment with its workload caveat.
+
+### A. Enabler — split the `scalar_aliases` profiling bucket (do this first)
+
+The residual in `scripts/profile_rdkit_mordred_like.py` currently lumps 62
+descriptors, so its 2.89s is unreadable and the candidates below cannot be
+measured. Add named groups to `_NAMED_DESCRIPTOR_GROUPS`:
+
+- `carbon_types` → `CARBON_TYPES_DESCRIPTORS` + `HybRatio`
+- `drug_likeness` → `Lipinski`, `GhoseFilter`, `FilterItLogS`
+- `graph_scalars` → `BalabanJ`, `Kier1`, `Kier2`, `Kier3`, `VAdjMat`,
+  `DetourIndex`, `RNCG`, `RPCG`
+
+What stays in `scalar_aliases` is then only the genuinely trivial counts
+(atom/bond/ring counts, `MW`, `SMR`, `SLogP`, `TopoPSA`, `nAcid`/`nBase`, …). Pure
+observability, zero behavior risk — land it before measuring B/C/D.
+
+### B. Cache Crippen logP/MR and HBA/HBD; reuse in the drug-likeness filters
+
+`_lipinski` and `_ghose_filter` (≈ `rdkit_mordred_like.py:2497-2513`) recompute
+RDKit quantities that other descriptors already compute independently:
+
+- `Crippen.MolLogP` — also `SLogP`, so up to **3×** per molecule
+- `Crippen.MolMR` — also `SMR`, **2×**
+- `CalcNumHBA` / `CalcNumHBD` — also `nHBAcc` / `nHBDon`, **2×** each
+
+Add `cached_property` wrappers on `_DescriptorContext` (mirror
+`exact_molecular_weight` at `rdkit_mordred_like.py:853`) for logP, MR, HBA, HBD,
+then rewire `SMR`, `SLogP`, `nHBAcc`, `nHBDon`, `_lipinski`, `_ghose_filter` to
+read them. Same RDKit calls, just memoized → behavior-preserving; verify bit-exact,
+run tests, and measure with the `drug_likeness` group from A. Low risk, modest but
+real win.
+
+### C. ETA family (1.46s, never profiled at the function level)
+
+Highest unexplored upside. Drill into `eta_values` with `cProfile` (sort
+`tottime`) **before** touching anything. The likely cause is shared ETA core
+quantities — per-atom α and β contributions and the `eta`/`eta'` reference sums —
+recomputed across the ~45 ETA descriptors instead of once. If confirmed, hoist the
+shared atomic contributions into a single pass (or a cached intermediate on the
+context) and have each descriptor read from it, the same cached-intermediate
+pattern the rest of the calculator already uses. Verify bit-exact across the panel;
+ETA requires a connected molecule, so include the disconnected-→-NaN cases in the
+diff.
+
+### D. chi accumulation (1.63s, #2) — measure first, likely near floor
+
+Past the DFS→degree-count rewrite. The remaining cost is the C++
+`FindAllSubgraphsOfLengthN` sweep (one call per order, orders 2-7 — there is no
+range-returning API to fold them) plus the per-subgraph Python product loop in
+`chi_subgraph_accumulators`. A measurement pass could test vectorizing the
+endpoint-value products per order (subgraphs of one order form a rectangular
+node-index matrix), but heed the path-count lesson already recorded above: numpy
+*lost* there because per-(molecule, order) sets are small and fixed call overhead
+dominated. Treat as "measure, expect to leave alone."
+
+### E. IC residual (1.50s, post-halving) — lower priority
+
+After the single-walk rewrite the residual is dominated by building and sorting the
+trail tuples. A possible further step: intern each trail to an integer id per order
+so the grouping step compares ints instead of nested tuples. Confirm with
+`cProfile` that the sort/compare actually dominates before attempting — it may
+already be at a reasonable floor, in which case record that and stop.
