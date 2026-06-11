@@ -854,6 +854,22 @@ class _DescriptorContext:
         return Descriptors.ExactMolWt(self.mol)
 
     @cached_property
+    def mol_log_p(self) -> float:
+        return Crippen.MolLogP(self.mol)
+
+    @cached_property
+    def mol_mr(self) -> float:
+        return Crippen.MolMR(self.mol)
+
+    @cached_property
+    def num_hba(self) -> int:
+        return rdMolDescriptors.CalcNumHBA(self.mol)
+
+    @cached_property
+    def num_hbd(self) -> int:
+        return rdMolDescriptors.CalcNumHBD(self.mol)
+
+    @cached_property
     def total_atom_count_including_hydrogen(self) -> int:
         return self.mol.GetNumAtoms() + self.implicit_hydrogen_count
 
@@ -984,6 +1000,33 @@ class _DescriptorContext:
         return result
 
     @cached_property
+    def _eta_kekulized_mol(self) -> Chem.Mol:
+        """Heavy-atom mol, kekulized with aromatic flags preserved (for ETA/AETA)."""
+        mol = Chem.Mol(self.mol)
+        Chem.Kekulize(mol)
+        return mol
+
+    @cached_property
+    def _eta_reference_mol(self) -> Chem.Mol | None:
+        """All-C/all-SINGLE reference alkane on the heavy-atom skeleton (for ETA/AETA)."""
+        return _eta_build_reference_mol(self._eta_kekulized_mol)
+
+    @cached_property
+    def _eta_reference_mol_with_h(self) -> Chem.Mol | None:
+        """Reference alkane with explicit H added (for ETA epsilon_3)."""
+        rmol = self._eta_reference_mol
+        if rmol is None:
+            return None
+        mol_ref = Chem.AddHs(rmol)
+        Chem.Kekulize(mol_ref)
+        return mol_ref
+
+    @cached_property
+    def _eta_saturated_mol(self) -> Chem.Mol | None:
+        """Saturated skeleton (C-C bonds → SINGLE, original heteroatoms kept, with H) for ETA epsilon_4."""
+        return _eta_saturated_mol(self._eta_kekulized_mol)
+
+    @cached_property
     def eta_values(self) -> dict[str, float]:
         """Extended topochemical atom (ETA/AETA) descriptors.
 
@@ -997,9 +1040,7 @@ class _DescriptorContext:
         if n == 0 or len(Chem.GetMolFrags(self.mol)) > 1:
             return {name: nan for name in ETA_DESCRIPTORS}
 
-        # Kekulize once with aromatic flags preserved for GetIsAromatic() / bond checks.
-        mol = Chem.Mol(self.mol)
-        Chem.Kekulize(mol)
+        mol = self._eta_kekulized_mol
 
         alpha, eps, beta_sigma, beta_ns, beta_d = _eta_atom_properties(mol)
 
@@ -1044,7 +1085,7 @@ class _DescriptorContext:
 
         # Reference mol (all-C, all-SINGLE): topology unchanged, gamma values updated.
         # EtaCompositeIndex uses the ORIGINAL mol's distance matrix even for reference.
-        rmol = _eta_build_reference_mol(mol)
+        rmol = self._eta_reference_mol
         if rmol is not None:
             ralpha, _reps, rbeta_sigma, rbeta_ns, rbeta_d = _eta_atom_properties(rmol)
             rgamma: list[float] = []
@@ -1097,10 +1138,10 @@ class _DescriptorContext:
         eps1 = _eta_eps_mean(mol_h)
         eps5 = _eta_eps_mean5(mol_h)
 
-        rmol_h = _eta_reference_mol_with_h(mol)
+        rmol_h = self._eta_reference_mol_with_h
         eps3 = _eta_eps_mean(rmol_h) if rmol_h is not None else nan
 
-        sat_mol = _eta_saturated_mol(mol)
+        sat_mol = self._eta_saturated_mol
         eps4 = _eta_eps_mean(sat_mol) if sat_mol is not None else nan
 
         result["ETA_epsilon_1"] = eps1
@@ -2361,8 +2402,8 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
     "PetitjeanIndex": _petitjean_index,
     "Radius": _radius,
     "RotRatio": _rotatable_bond_ratio,
-    "SMR": _rdkit_descriptor(Crippen.MolMR),
-    "SLogP": _rdkit_descriptor(Crippen.MolLogP),
+    "SMR": lambda ctx: ctx.mol_mr,
+    "SLogP": lambda ctx: ctx.mol_log_p,
     "TopoPSA": lambda ctx: rdMolDescriptors.CalcTPSA(
         ctx.mol,
         includeSandP=True,
@@ -2404,8 +2445,8 @@ _DESCRIPTOR_FUNCTIONS: dict[str, DescriptorFunction] = {
         include_implicit_hydrogen_bonds=True,
     ),
     "nBondsT": lambda ctx: _bond_count_by_predicate(ctx, _is_triple_bond),
-    "nHBAcc": _rdkit_descriptor(rdMolDescriptors.CalcNumHBA),
-    "nHBDon": _rdkit_descriptor(rdMolDescriptors.CalcNumHBD),
+    "nHBAcc": lambda ctx: ctx.num_hba,
+    "nHBDon": lambda ctx: ctx.num_hbd,
     "nH": _hydrogen_atom_count,
     "nHeavyAtom": _rdkit_descriptor(Descriptors.HeavyAtomCount),
     "nHetero": _rdkit_descriptor(rdMolDescriptors.CalcNumHeteroatoms),
@@ -2495,22 +2536,22 @@ def _vadjmat(ctx: _DescriptorContext) -> float:
 
 
 def _lipinski(ctx: _DescriptorContext) -> int:
-    mol = ctx.mol
     return int(
-        rdMolDescriptors.CalcNumHBD(mol) <= 5
-        and rdMolDescriptors.CalcNumHBA(mol) <= 10
-        and Descriptors.ExactMolWt(mol) <= 500.0
-        and Crippen.MolLogP(mol) <= 5.0
+        ctx.num_hbd <= 5
+        and ctx.num_hba <= 10
+        and ctx.exact_molecular_weight <= 500.0
+        and ctx.mol_log_p <= 5.0
     )
 
 
 def _ghose_filter(ctx: _DescriptorContext) -> int:
-    mol = ctx.mol
-    mw = Descriptors.ExactMolWt(mol)
-    logp = Crippen.MolLogP(mol)
-    mr = Crippen.MolMR(mol)
     n = ctx.explicit_hydrogen_mol.GetNumAtoms()
-    return int(160 <= mw <= 480 and 20 <= n <= 70 and -0.4 <= logp <= 5.6 and 40 <= mr <= 130)
+    return int(
+        160 <= ctx.exact_molecular_weight <= 480
+        and 20 <= n <= 70
+        and -0.4 <= ctx.mol_log_p <= 5.6
+        and 40 <= ctx.mol_mr <= 130
+    )
 
 
 def _filter_it_logs(ctx: _DescriptorContext) -> float:

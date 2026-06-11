@@ -272,50 +272,32 @@ full panel and every parameter (order/lag/property) before replacing code**, the
 run `conda run -n open3d python -m pytest tests/ -q` as the final oracle gate.
 Record any rejected experiment with its workload caveat.
 
-### A. Enabler — split the `scalar_aliases` profiling bucket (do this first)
+### A. Enabler — split the `scalar_aliases` profiling bucket ✓ done
 
-The residual in `scripts/profile_rdkit_mordred_like.py` currently lumps 62
-descriptors, so its 2.89s is unreadable and the candidates below cannot be
-measured. Add named groups to `_NAMED_DESCRIPTOR_GROUPS`:
+Added `carbon_types`, `drug_likeness`, `graph_scalars` named groups to
+`scripts/profile_rdkit_mordred_like.py`. What remains in `scalar_aliases` is only
+the genuinely trivial counts (atom/bond/ring counts, `MW`, `TopoPSA`, etc.).
 
-- `carbon_types` → `CARBON_TYPES_DESCRIPTORS` + `HybRatio`
-- `drug_likeness` → `Lipinski`, `GhoseFilter`, `FilterItLogS`
-- `graph_scalars` → `BalabanJ`, `Kier1`, `Kier2`, `Kier3`, `VAdjMat`,
-  `DetourIndex`, `RNCG`, `RPCG`
+### B. Cache Crippen logP/MR and HBA/HBD; reuse in drug-likeness filters ✓ done
 
-What stays in `scalar_aliases` is then only the genuinely trivial counts
-(atom/bond/ring counts, `MW`, `SMR`, `SLogP`, `TopoPSA`, `nAcid`/`nBase`, …). Pure
-observability, zero behavior risk — land it before measuring B/C/D.
+Added `mol_log_p`, `mol_mr`, `num_hba`, `num_hbd` cached properties on
+`_DescriptorContext` and rewired `SMR`, `SLogP`, `nHBAcc`, `nHBDon`, `_lipinski`,
+`_ghose_filter` to read them. Eliminated up to 3× redundant `MolLogP` and 2×
+redundant `MolMR`/`CalcNumHBA`/`CalcNumHBD` calls per molecule.
 
-### B. Cache Crippen logP/MR and HBA/HBD; reuse in the drug-likeness filters
+### C. ETA family — cache reference/saturated mols ✓ done
 
-`_lipinski` and `_ghose_filter` (≈ `rdkit_mordred_like.py:2497-2513`) recompute
-RDKit quantities that other descriptors already compute independently:
+`cProfile` showed `_eta_build_reference_mol` and `_eta_atom_properties` were each
+called **2× per molecule** (once directly, once via `_eta_reference_mol_with_h`
+which unconditionally re-called `_eta_build_reference_mol`). Additionally, the
+kekulized heavy-atom mol was rebuilt inside `eta_values` on every call even though
+`eta_values` is already a `cached_property`. Fixed by adding four `cached_property`
+entries on `_DescriptorContext`: `_eta_kekulized_mol`, `_eta_reference_mol`,
+`_eta_reference_mol_with_h` (reuses `_eta_reference_mol` via `Chem.AddHs`),
+`_eta_saturated_mol`. ETA isolated: ~29 → ~22 ms/pass (~25%); full panel ~228 →
+~225 ms. All 77 tests pass.
 
-- `Crippen.MolLogP` — also `SLogP`, so up to **3×** per molecule
-- `Crippen.MolMR` — also `SMR`, **2×**
-- `CalcNumHBA` / `CalcNumHBD` — also `nHBAcc` / `nHBDon`, **2×** each
-
-Add `cached_property` wrappers on `_DescriptorContext` (mirror
-`exact_molecular_weight` at `rdkit_mordred_like.py:853`) for logP, MR, HBA, HBD,
-then rewire `SMR`, `SLogP`, `nHBAcc`, `nHBDon`, `_lipinski`, `_ghose_filter` to
-read them. Same RDKit calls, just memoized → behavior-preserving; verify bit-exact,
-run tests, and measure with the `drug_likeness` group from A. Low risk, modest but
-real win.
-
-### C. ETA family (1.46s, never profiled at the function level)
-
-Highest unexplored upside. Drill into `eta_values` with `cProfile` (sort
-`tottime`) **before** touching anything. The likely cause is shared ETA core
-quantities — per-atom α and β contributions and the `eta`/`eta'` reference sums —
-recomputed across the ~45 ETA descriptors instead of once. If confirmed, hoist the
-shared atomic contributions into a single pass (or a cached intermediate on the
-context) and have each descriptor read from it, the same cached-intermediate
-pattern the rest of the calculator already uses. Verify bit-exact across the panel;
-ETA requires a connected molecule, so include the disconnected-→-NaN cases in the
-diff.
-
-### D. chi accumulation (1.63s, #2) — measure first, likely near floor
+### D. chi accumulation (1.63s) — measure first, likely near floor
 
 Past the DFS→degree-count rewrite. The remaining cost is the C++
 `FindAllSubgraphsOfLengthN` sweep (one call per order, orders 2-7 — there is no

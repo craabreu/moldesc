@@ -18,6 +18,7 @@ from descriptors.mordred_rdkit_registry import (
     ATOMIC_ID_DESCRIPTORS,
     AUTOCORRELATION_DESCRIPTORS,
     BCUT_DESCRIPTORS,
+    CARBON_TYPES_DESCRIPTORS,
     CHI_DESCRIPTORS,
     CONSTITUTIONAL_DESCRIPTORS,
     ESTATE_ATOM_TYPE_DESCRIPTORS,
@@ -66,6 +67,9 @@ _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "small_graph_formula": SMALL_GRAPH_FORMULA_DESCRIPTORS,
     "physical_properties": PHYSICAL_PROPERTY_DESCRIPTORS,
     "atomic_id": ATOMIC_ID_DESCRIPTORS,
+    "carbon_types": (*CARBON_TYPES_DESCRIPTORS, "HybRatio"),
+    "drug_likeness": ("Lipinski", "GhoseFilter", "FilterItLogS"),
+    "graph_scalars": ("BalabanJ", "Kier1", "Kier2", "Kier3", "VAdjMat", "DetourIndex", "RNCG", "RPCG"),
 }
 
 _GROUPED_DESCRIPTOR_NAMES = {
