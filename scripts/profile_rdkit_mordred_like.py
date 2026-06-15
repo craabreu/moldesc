@@ -46,6 +46,12 @@ class TimingResult(NamedTuple):
     elapsed: float
 
 
+class ProfileConfig(NamedTuple):
+    molecule_count: int
+    repeat: int
+    descriptors_per_molecule: int
+
+
 _NAMED_DESCRIPTOR_GROUPS: dict[str, tuple[str, ...]] = {
     "exact_rdkit": EXACT_NAME_RDKIT_DESCRIPTORS,
     "estate_atom_types": ESTATE_ATOM_TYPE_DESCRIPTORS,
@@ -166,16 +172,41 @@ def _time_mordred(molecules, repeat: int) -> tuple[int, float]:
     return descriptor_count, perf_counter() - start
 
 
-def _print_result(label: str, descriptor_count: int, elapsed: float) -> None:
-    print(f"{label} descriptor values: {descriptor_count}")
-    print(f"{label} elapsed seconds: {elapsed:.6f}")
-    print(f"{label} descriptor values/second: {descriptor_count / elapsed:.2f}")
+def _values_per_second(descriptor_count: int, elapsed: float) -> float:
+    if elapsed == 0:
+        return float("inf")
+    return descriptor_count / elapsed
 
 
-def _print_group_results(results: tuple[TimingResult, ...]) -> None:
-    print("rdkit grouped timings:")
-    for result in results:
-        _print_result(f"rdkit {result.label}", result.descriptor_count, result.elapsed)
+def _format_markdown_report(
+    config: ProfileConfig,
+    results: tuple[TimingResult, ...],
+) -> str:
+    lines = [
+        "# RDKit Mordred-like descriptor profile",
+        "",
+        "## Configuration",
+        "",
+        "| setting | value |",
+        "| --- | ---: |",
+        f"| molecules | {config.molecule_count} |",
+        f"| repeats | {config.repeat} |",
+        f"| descriptors per molecule | {config.descriptors_per_molecule} |",
+        "",
+        "## Timings",
+        "",
+        "| calculator | descriptor values | elapsed seconds | descriptor values/second |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    lines.extend(
+        (
+            f"| {result.label} | {result.descriptor_count} | "
+            f"{result.elapsed:.6f} | "
+            f"{_values_per_second(result.descriptor_count, result.elapsed):.2f} |"
+        )
+        for result in results
+    )
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -199,19 +230,31 @@ def main() -> None:
     args = parser.parse_args()
 
     molecules = _load_molecules(args.panel)
-    print(f"molecules: {len(molecules)}")
-    print(f"repeats: {args.repeat}")
-    print(f"descriptors per molecule: {len(SUPPORTED_MORDRED_2D_DESCRIPTORS)}")
+    results: list[TimingResult] = []
 
     if args.backend in {"rdkit", "both"}:
         descriptor_count, elapsed = _time_rdkit(molecules, args.repeat)
-        _print_result("rdkit", descriptor_count, elapsed)
+        results.append(TimingResult("rdkit", descriptor_count, elapsed))
         if args.grouped:
-            _print_group_results(_time_rdkit_groups(molecules, args.repeat))
+            results.extend(
+                TimingResult(
+                    f"rdkit/{result.label}",
+                    result.descriptor_count,
+                    result.elapsed,
+                )
+                for result in _time_rdkit_groups(molecules, args.repeat)
+            )
 
     if args.backend in {"mordred", "both"}:
         descriptor_count, elapsed = _time_mordred(molecules, args.repeat)
-        _print_result("mordred", descriptor_count, elapsed)
+        results.append(TimingResult("mordred", descriptor_count, elapsed))
+
+    config = ProfileConfig(
+        molecule_count=len(molecules),
+        repeat=args.repeat,
+        descriptors_per_molecule=len(SUPPORTED_MORDRED_2D_DESCRIPTORS),
+    )
+    print(_format_markdown_report(config, tuple(results)))
 
 
 if __name__ == "__main__":
